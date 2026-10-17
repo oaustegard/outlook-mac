@@ -53,12 +53,29 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         )
     }
 
-    /// Replaces the page's user scripts: the server origin, the bridge, the theme, and the user's stylesheet.
+    // Nil if base.css is missing from the bundle; the page then keeps its own styling.
+    let baseScript = WebViewStore.loadBaseScript()
+
+    private static func loadBaseScript() -> WKUserScript? {
+        guard let url = Bundle.main.url(forResource: "base", withExtension: "css"),
+              let css = try? String(contentsOf: url, encoding: .utf8)
+        else { return nil }
+        // Goes before the user's stylesheet in the page, so a rule in user.css overrides it.
+        return WKUserScript(
+            source: InjectedScript.style(id: "omac-base", css: css, first: true),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: false
+        )
+    }
+
+    /// Replaces the page's user scripts: the server origin, the bridge, the theme, the base
+    /// stylesheet, and the user's stylesheet.
     func installUserScripts(on controller: WKUserContentController) {
         controller.removeAllUserScripts()
         if let originScript = serverOriginScript() { controller.addUserScript(originScript) }
         if let bridgeScript { controller.addUserScript(bridgeScript) }
         if let themeScript { controller.addUserScript(themeScript) }
+        if let baseScript { controller.addUserScript(baseScript) }
         controller.addUserScript(userStyles.documentStartScript())
     }
 

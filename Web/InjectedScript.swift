@@ -10,15 +10,21 @@ enum InjectedScript {
         return String(array.dropFirst().dropLast())
     }
 
-    /// Creates or updates a <style> element with the given id. Safe to run more than once.
-    static func style(id: String, css: String) -> String {
+    /// Creates or updates a <style> element with the given id. Safe to run more than once. With
+    /// `first`, a new element goes before the page's other style elements, so later rules win.
+    static func style(id: String, css: String, first: Bool = false) -> String {
         """
         (function () {
           var style = document.getElementById(\(literal(id)));
           if (!style) {
             style = document.createElement('style');
             style.id = \(literal(id));
-            (document.head || document.documentElement).appendChild(style);
+            var parent = document.head || document.documentElement;
+            if (\(first) && parent.firstChild) {
+              parent.insertBefore(style, parent.firstChild);
+            } else {
+              parent.appendChild(style);
+            }
           }
           style.textContent = \(literal(css));
         })();

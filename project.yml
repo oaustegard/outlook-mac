@@ -23,6 +23,8 @@ targets:
         buildPhase: resources
       - path: Bridge/theme.css
         buildPhase: resources
+      - path: Resources/base.css
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.oaustegard.outlook-mac

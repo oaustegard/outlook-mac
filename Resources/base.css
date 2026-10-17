@@ -1,0 +1,11 @@
+/* The app's baseline styling. Injected before the user's user.css, so any rule in user.css wins. */
+
+html, body, button, input, textarea, [role] {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25); border-radius: 4px }
+
+[role="option"], [role="treeitem"] { min-height: 0 !important; }
