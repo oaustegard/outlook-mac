@@ -1,0 +1,11 @@
+{
+  "name": "omac-live",
+  "private": true,
+  "description": "Live WebKit harness that drives the app's bridge against the real OWA page",
+  "type": "module",
+  "scripts": {
+    "login": "node login.mjs",
+    "probe": "node probe.mjs",
+    "verify-writes": "node verify-writes.mjs"
+  }
+}
