@@ -95,6 +95,41 @@
     return Array.from(document.querySelectorAll(selector)).find(el => el.getClientRects().length > 0) || null;
   }
 
+  // The first visible element matching the selector whose aria-label or text is `label`, or null.
+  function visibleLabelled(selector, label) {
+    const want = label.toLowerCase();
+    return Array.from(document.querySelectorAll(selector)).find(el => {
+      const text = (el.getAttribute('aria-label') || el.textContent || '').trim().toLowerCase();
+      return text === want && el.getClientRects().length > 0;
+    }) || null;
+  }
+
+  // Opens the context menu of the selected message, then clicks the item labelled `label`.
+  // Outlook offers Pin and Mark as junk only there, not as keyboard shortcuts.
+  async function clickMessageMenuItem(label) {
+    const row = visibleMatch('[role="listbox"] [role="option"][aria-selected="true"]');
+    if (!row) return false;
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      clientX: r.x + r.width / 2,
+      clientY: r.y + r.height / 2
+    }));
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      const item = visibleLabelled('[role="menuitem"], [role="menuitemcheckbox"]', label);
+      if (item) {
+        item.click();
+        return true;
+      }
+      await delay(100);
+    }
+    pressKeys([{ key: 'Escape', code: 'Escape' }]);
+    return false;
+  }
+
   function pressKeys(keys) {
     const target = document.activeElement || document.body;
     for (const k of keys) {
@@ -142,6 +177,7 @@
     if (!entry) return false;
     if (!(await ensureView(entry))) return false;
 
+    if (entry.menuLabel) return clickMessageMenuItem(entry.menuLabel);
     if (entry.selector) {
       const el = visibleMatch(entry.selector);
       if (el) {

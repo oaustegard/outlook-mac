@@ -12,6 +12,8 @@ enum OutlookCommand: String, CaseIterable {
     case markRead
     case markUnread
     case flag
+    case pin
+    case markJunk
     case gotoInbox
 
     // Calendar

@@ -13,6 +13,8 @@
   "markRead": { "view": "mail", "keys": [{ "key": "q", "code": "KeyQ", "ctrlKey": true }] },
   "markUnread": { "view": "mail", "keys": [{ "key": "u", "code": "KeyU", "ctrlKey": true }] },
   "flag": { "view": "mail", "keys": [{ "key": "Insert", "code": "Insert" }] },
+  "pin": { "view": "mail", "keys": [], "menuLabel": "Pin" },
+  "markJunk": { "view": "mail", "keys": [], "menuLabel": "Mark as junk" },
   "archive": { "view": "mail", "keys": [], "selector": "button[aria-label^=\"Archive\"]" },
   "gotoInbox": { "view": "mail", "keys": [] },
   "gotoCalendar": { "view": "calendar", "keys": [] },

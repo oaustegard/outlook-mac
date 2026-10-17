@@ -30,6 +30,8 @@ struct AppCommands: Commands {
             item("Mark as Read", .markRead, "u", [.command, .shift])
             item("Mark as Unread", .markUnread, "u", [.command, .option, .shift])
             item("Flag", .flag, "l", [.command, .shift])
+            item("Pin", .pin, "p", [.command, .option])
+            item("Mark as Junk", .markJunk, "j", [.command, .shift])
         }
 
         CommandMenu("Calendar") {

@@ -195,6 +195,12 @@ html, body {
   padding-bottom: 2px !important;
   border-radius: 4px !important;
 }
+/* OWA leaves entries it hides in the menu tree. The min-height and padding above would still give
+   each one a row, so collapse them. */
+[role="menu"] [hidden], [role="menu"] [aria-hidden="true"], [role="menu"] li:empty,
+[role="menu"] [role="menuitem"]:empty, [role="menu"] [role="menuitemcheckbox"]:empty {
+  display: none !important;
+}
 
 /* ---- Dialogs ---------------------------------------------------------------------------- */
 /* Survey: 7 role=dialog and 3-4 role=alertdialog containers sit under body in every view. */
