@@ -10,6 +10,12 @@ targets:
     sources:
       - App
       - Web
+      - Menus
+      - path: Bridge
+        excludes:
+          - bridge.js
+      - path: Bridge/bridge.js
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.oaustegard.outlook-mac

@@ -7,5 +7,6 @@ struct OutlookApp: App {
             OutlookWebView()
                 .frame(minWidth: 900, minHeight: 600)
         }
+        .commands { AppCommands() }
     }
 }

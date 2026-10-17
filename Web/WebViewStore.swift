@@ -6,6 +6,18 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let shared = WebViewStore()
     static let homeURL = URL(string: "https://outlook.office.com/mail/")!
 
+    let dispatcher = CommandDispatcher()
+
+    // Nil if bridge.js is missing from the bundle; the menu commands then do nothing.
+    let bridgeScript = WebViewStore.loadBridgeScript()
+
+    private static func loadBridgeScript() -> WKUserScript? {
+        guard let url = Bundle.main.url(forResource: "bridge", withExtension: "js"),
+              let source = try? String(contentsOf: url, encoding: .utf8)
+        else { return nil }
+        return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+    }
+
     // Domains that stay in the web view, so Outlook and its sign-in flow work there.
     private let inAppDomains = [
         "office.com",
