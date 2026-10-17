@@ -68,13 +68,30 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         )
     }
 
+    // Nil if owa.css is missing from the bundle; the page then keeps OWA's own density and layout.
+    let owaScript = WebViewStore.loadOWAScript()
+
+    private static func loadOWAScript() -> WKUserScript? {
+        guard let url = Bundle.main.url(forResource: "owa", withExtension: "css"),
+              let css = try? String(contentsOf: url, encoding: .utf8)
+        else { return nil }
+        // Also inserted first in the page. It is added to the controller before baseScript, so
+        // base.css is then inserted ahead of it: base.css, owa.css, page styles, user.css.
+        return WKUserScript(
+            source: InjectedScript.style(id: "omac-owa", css: css, first: true),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: false
+        )
+    }
+
     /// Replaces the page's user scripts: the server origin, the bridge, the theme, the base
-    /// stylesheet, and the user's stylesheet.
+    /// and OWA stylesheets, and the user's stylesheet.
     func installUserScripts(on controller: WKUserContentController) {
         controller.removeAllUserScripts()
         if let originScript = serverOriginScript() { controller.addUserScript(originScript) }
         if let bridgeScript { controller.addUserScript(bridgeScript) }
         if let themeScript { controller.addUserScript(themeScript) }
+        if let owaScript { controller.addUserScript(owaScript) }
         if let baseScript { controller.addUserScript(baseScript) }
         controller.addUserScript(userStyles.documentStartScript())
     }

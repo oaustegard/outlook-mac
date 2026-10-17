@@ -1,0 +1,175 @@
+/* owa.css: compact, Mac-style layer over on-prem OWA. Injected after base.css, before user.css,
+   so any rule in user.css wins. Hooks come from surveys/dom-survey-{mail,calendar,people}.json
+   (branch dom-survey). Those surveys stop at depth 6, so they confirm only the page shell
+   (body, #primaryContainer, #primaryHeaderView, #O365_NavHeader, region links, dialogs).
+   Rules for the folder tree, message list and toolbars use standard ARIA roles that OWA
+   exposes for accessibility; they are not confirmed by the survey and are kept defensive.
+   No generated class names (_n_*, ms-*) are targeted. */
+
+/* ---- Tokens ------------------------------------------------------------------------------- */
+:root {
+  --omac-accent: #0a84ff;
+  --omac-accent-text: #fff;
+  --omac-sidebar: #f5f5f7;
+  --omac-surface: #fff;
+  --omac-text: #1d1d1f;
+  --omac-separator: rgba(0, 0, 0, .1);
+  --omac-hover: rgba(0, 0, 0, .05);
+  --omac-row: 24px;
+  --omac-font: 13px;
+}
+/* WebKit exposes the user's System Settings accent colour under this keyword. */
+@supports (color: -apple-system-control-accent) {
+  :root { --omac-accent: -apple-system-control-accent; }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --omac-sidebar: #1e1e1e;
+    --omac-surface: #262626;
+    --omac-text: #e8e8ed;
+    --omac-separator: rgba(255, 255, 255, .1);
+    --omac-hover: rgba(255, 255, 255, .06);
+  }
+}
+
+/* ---- Base type -------------------------------------------------------------------------- */
+/* Survey: every view reports font.size 16px on body. Bring it to the macOS 13px default. */
+body, [role] {
+  font-size: var(--omac-font) !important;
+  line-height: 1.35;
+}
+
+/* Survey: body has inline min-width 990px at every width. At the 900px window (1000 CSS px at
+   0.9 zoom) that is near the edge, and at smaller windows or higher zoom it causes horizontal
+   scroll. Let the page shrink with the window instead. */
+html, body {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+/* ---- Top header ------------------------------------------------------------------------- */
+/* Survey: #primaryHeaderView > div > #O365_NavHeader, a 50px bar at top 0 in all three views.
+   It is NOT hidden: it holds the settings gear, sign-out and notifications, which the native
+   toolbar does not duplicate, and the content below it is absolutely positioned at top 50px
+   by OWA's script, so hiding it would leave a blank strip. Only flatten it. */
+#O365_NavHeader {
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--omac-separator) !important;
+}
+
+/* ---- Folder pane (role=tree / treeitem) ---------------------------------------------------- */
+[role="tree"] {
+  background: var(--omac-sidebar) !important;
+  border-right: 1px solid var(--omac-separator) !important;
+  padding: 4px 6px !important;
+}
+[role="treeitem"] {
+  min-height: var(--omac-row) !important;
+  line-height: var(--omac-row) !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin: 1px 0 !important;
+  border-radius: 6px !important;
+  color: var(--omac-text);
+}
+[role="treeitem"]:hover {
+  background: var(--omac-hover) !important;
+}
+/* Rounded accent pill for the selected folder. */
+[role="treeitem"][aria-selected="true"] {
+  background: var(--omac-accent) !important;
+  color: var(--omac-accent-text) !important;
+}
+[role="treeitem"][aria-selected="true"] * {
+  color: inherit !important;
+}
+
+/* ---- Message / contact list (role=listbox / option) ------------------------------------ */
+[role="listbox"] [role="option"] {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+  border-bottom: 1px solid var(--omac-separator) !important;
+}
+[role="listbox"] [role="option"]:hover {
+  background: var(--omac-hover) !important;
+}
+[role="listbox"] [role="option"][aria-selected="true"] {
+  background: var(--omac-accent) !important;
+  color: var(--omac-accent-text) !important;
+}
+[role="listbox"] [role="option"][aria-selected="true"] * {
+  color: inherit !important;
+}
+
+/* ---- Toolbars and menus ----------------------------------------------------------------- */
+[role="toolbar"], [role="menubar"] {
+  min-height: 0 !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  border-bottom: 1px solid var(--omac-separator);
+}
+[role="toolbar"] [role="button"], [role="toolbar"] button, [role="menubar"] [role="menuitem"] {
+  min-height: 24px !important;
+  padding: 2px 8px !important;
+  border-radius: 5px !important;
+  font-size: var(--omac-font) !important;
+}
+[role="toolbar"] [role="button"]:hover, [role="toolbar"] button:hover {
+  background: var(--omac-hover) !important;
+}
+[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"] {
+  min-height: 22px !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  border-radius: 4px !important;
+}
+
+/* ---- Dialogs ---------------------------------------------------------------------------- */
+/* Survey: 7 role=dialog and 3-4 role=alertdialog containers sit under body in every view. */
+[role="dialog"], [role="alertdialog"] {
+  border-radius: 10px !important;
+}
+[role="menu"] {
+  border-radius: 8px;
+}
+
+/* ---- Focus ------------------------------------------------------------------------------ */
+:focus-visible {
+  outline: 2px solid var(--omac-accent) !important;
+  outline-offset: -2px;
+}
+
+/* ---- Dark mode surfaces ----------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  /* Survey: #primaryContainer spans the whole viewport below body in every view. */
+  #primaryContainer { color-scheme: dark; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .25); }
+}
+
+/* ---- Responsive -------------------------------------------------------------------------- */
+/* Survey widths 900/1280/1800 report CSS viewports of 1000/1422/2000 px (page zoom 0.9). */
+
+/* Wide (1800 window, 2000 CSS px): a little more air in rows. */
+@media (min-width: 1700px) {
+  :root { --omac-row: 26px; }
+}
+
+/* Narrow (900 window, 1000 CSS px and below): narrow the folder pane, let the rest flex. */
+@media (max-width: 1100px) {
+  :root { --omac-row: 22px; --omac-font: 12.5px; }
+  [role="tree"] {
+    max-width: 180px !important;
+    padding: 2px 4px !important;
+  }
+  [role="treeitem"] {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  [role="main"], [role="region"] {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+  [role="toolbar"] [role="button"], [role="toolbar"] button { padding: 2px 5px !important; }
+}
+

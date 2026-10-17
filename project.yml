@@ -25,6 +25,8 @@ targets:
         buildPhase: resources
       - path: Resources/base.css
         buildPhase: resources
+      - path: Resources/owa.css
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.oaustegard.outlook-mac
