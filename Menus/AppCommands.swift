@@ -9,6 +9,9 @@ struct AppCommands: Commands {
             Button("Change Server…") {
                 NotificationCenter.default.post(name: .showServerSetup, object: nil)
             }
+            Button("Sign Out") {
+                WebViewStore.shared.signOut()
+            }
         }
 
         CommandGroup(after: .textEditing) {

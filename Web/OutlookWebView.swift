@@ -16,9 +16,7 @@ struct OutlookWebView: NSViewRepresentable {
         store.dispatcher.webView = webView
         webView.navigationDelegate = store
         webView.uiDelegate = store
-        if let url = ServerConfig.serverURL {
-            webView.load(URLRequest(url: url))
-        }
+        store.startSession()
         return webView
     }
 

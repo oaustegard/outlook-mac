@@ -9,6 +9,8 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     let dispatcher = CommandDispatcher()
     private let nav = Logger(subsystem: "com.oaustegard.outlook-mac", category: "nav")
     private var popupWindows: [NSWindow] = []
+    private var sessionStarted = false
+    private var saveTimer: Timer?
 
     // Nil if bridge.js is missing from the bundle; the menu commands then do nothing.
     let bridgeScript = WebViewStore.loadBridgeScript()
@@ -46,6 +48,31 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         "msftauth.net",
         "windows.net",
     ]
+
+    /// Restores saved cookies, then loads the server. Runs once, when the web view is created.
+    func startSession() {
+        guard !sessionStarted else { return }
+        sessionStarted = true
+        Task {
+            // Cookies must be back before the first load, or the session starts signed out.
+            await CookiePersistence.restore()
+            loadServer()
+            saveTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in await self?.saveCookies() }
+            }
+        }
+    }
+
+    func saveCookies() async {
+        await CookiePersistence.save()
+    }
+
+    func signOut() {
+        Task {
+            await CookiePersistence.signOut()
+            dispatcher.webView?.reload()
+        }
+    }
 
     /// Loads the configured server, if one has been set up.
     func loadServer() {
