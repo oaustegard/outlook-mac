@@ -1,0 +1,6 @@
+# XcodeGen generates the project from project.yml
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+build/
+.DS_Store
