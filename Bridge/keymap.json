@@ -1,5 +1,10 @@
 {
-  "newMail": { "view": "mail", "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }] },
+  "newMail": {
+    "view": "mail",
+    "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }],
+    "selector": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]",
+    "ready": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]"
+  },
   "reply": { "view": "mail", "keys": [{ "key": "r", "code": "KeyR", "ctrlKey": true }] },
   "replyAll": { "view": "mail", "keys": [{ "key": "R", "code": "KeyR", "ctrlKey": true, "shiftKey": true }] },
   "forward": { "view": "mail", "keys": [{ "key": "F", "code": "KeyF", "ctrlKey": true, "shiftKey": true }] },
@@ -16,7 +21,8 @@
   "newEvent": {
     "view": "calendar",
     "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }],
-    "selector": "button[aria-label^=\"New event\"]"
+    "selector": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]",
+    "ready": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]"
   },
   "calToday": {
     "view": "calendar",
@@ -27,6 +33,16 @@
   "calWorkWeek": { "view": "calendar", "keys": [{ "key": "2", "code": "Digit2", "ctrlKey": true, "altKey": true }] },
   "calWeek": { "view": "calendar", "keys": [{ "key": "3", "code": "Digit3", "ctrlKey": true, "altKey": true }] },
   "calMonth": { "view": "calendar", "keys": [{ "key": "4", "code": "Digit4", "ctrlKey": true, "altKey": true }] },
-  "newContact": { "view": "people", "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }] },
-  "newTask": { "view": "tasks", "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }] }
+  "newContact": {
+    "view": "people",
+    "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }],
+    "selector": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]",
+    "ready": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]"
+  },
+  "newTask": {
+    "view": "tasks",
+    "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }],
+    "selector": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]",
+    "ready": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]"
+  }
 }

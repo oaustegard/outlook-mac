@@ -36,7 +36,7 @@
     return location.origin + routes[view][onOwa ? 0 : 1];
   }
 
-  // Resolves true once the URL differs from `before` and 600ms have passed. Gives up after 5s.
+  // Resolves true once the URL differs from `before`. Gives up after 5s.
   function waitForUrlChange(before) {
     return new Promise(resolve => {
       const started = Date.now();
@@ -49,19 +49,43 @@
           resolve(false);
         }
       }, 50);
-    }).then(changed => (changed ? delay(600).then(() => true) : false));
+    });
   }
 
-  async function ensureView(view) {
+  // Resolves true once one of the selectors matches a visible element, or false after 8s.
+  function waitForReady(selectors) {
+    return new Promise(resolve => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        const found = selectors.some(s => visibleMatch(s));
+        if (found || Date.now() - started > 8000) {
+          clearInterval(timer);
+          resolve(found);
+        }
+      }, 100);
+    });
+  }
+
+  // After a view switch, waits until the view is ready. The keymap entry's "ready" and "selector"
+  // name what to wait for. A fixed 600ms wait is used only when the entry names neither.
+  async function ensureView(entry) {
+    const view = entry.view;
     if (!view || !routes[view] || inView(view)) return true;
     const before = location.href;
     location.assign(routeFor(view));
-    return waitForUrlChange(before);
+    if (!(await waitForUrlChange(before))) return false;
+    const selectors = [entry.ready, entry.selector].filter(Boolean);
+    if (selectors.length > 0) {
+      await waitForReady(selectors);
+    } else {
+      await delay(600);
+    }
+    return true;
   }
 
+  // The first visible element matching the selector, or null.
   function visibleMatch(selector) {
-    const el = document.querySelector(selector);
-    return el && el.getClientRects().length > 0 ? el : null;
+    return Array.from(document.querySelectorAll(selector)).find(el => el.getClientRects().length > 0) || null;
   }
 
   function pressKeys(keys) {
@@ -107,7 +131,7 @@
 
     const entry = keymap[cmd];
     if (!entry) return false;
-    if (!(await ensureView(entry.view))) return false;
+    if (!(await ensureView(entry))) return false;
 
     if (entry.selector) {
       const el = visibleMatch(entry.selector);
