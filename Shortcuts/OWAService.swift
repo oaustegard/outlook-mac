@@ -268,7 +268,12 @@ enum OWAService {
         'Content-Type': 'application/json; charset=utf-8',
         'X-OWA-CANARY': canary
       },
-      body: payload
+      // Exchange reads "__type" only when it is the first key of an object. Swift dictionaries have no
+      // key order, so each object that carries a "__type" is rewritten with it first.
+      body: JSON.stringify(JSON.parse(payload), (key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value) && '__type' in value
+          ? { __type: value.__type, ...value }
+          : value)
     });
     const type = response.headers.get('content-type') || '';
     return { status: response.status, json: type.indexOf('json') !== -1, text: await response.text() };
