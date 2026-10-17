@@ -35,7 +35,7 @@ final class SecondaryWindow: NSWindowController, NSWindowDelegate, NSToolbarDele
         webView = WebViewStore.shared.makeWebView()
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760),
+            contentRect: NSRect(x: 0, y: 0, width: WindowSize.width, height: WindowSize.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -43,7 +43,7 @@ final class SecondaryWindow: NSWindowController, NSWindowDelegate, NSToolbarDele
         window.title = kind.title
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 720, height: 480)
+        window.minSize = NSSize(width: WindowSize.width, height: WindowSize.height)
         window.toolbarStyle = .unified
         window.contentView = webView
         window.center()
