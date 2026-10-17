@@ -154,10 +154,10 @@
     return !entry.selector;
   }
 
-  // Structure of one element, down to 6 levels under body. Text content is never read.
+  // Structure of one element. Text content is never read.
   // aria-label is kept only on buttons, whose labels are interface text; elsewhere only its presence
   // is recorded. data-* attribute names are recorded, not their values. Elements wider than 150px
-  // also get their layout styles.
+  // also get their computed layout styles, and any width set inline is recorded as written.
   function describe(el) {
     const rect = el.getBoundingClientRect();
     const isButton = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button';
@@ -175,24 +175,37 @@
       const s = getComputedStyle(el);
       node.style = { width: s.width, minWidth: s.minWidth, maxWidth: s.maxWidth, flex: s.flex, position: s.position };
     }
+    const inline = { width: el.style.width, minWidth: el.style.minWidth, maxWidth: el.style.maxWidth };
+    const written = Object.entries(inline).filter(([, v]) => v);
+    if (written.length > 0) node.inline = Object.fromEntries(written);
     return node;
   }
 
-  // Walks body to depth 6 and stops after 3000 elements.
+  // An element is kept only if it has a role, an aria-label or a data-* attribute.
+  function isMeaningful(el) {
+    return el.hasAttribute('role') || el.hasAttribute('aria-label') ||
+      Array.from(el.attributes).some(a => a.name.startsWith('data-'));
+  }
+
+  // Walks body to depth 15 and stops after 6000 elements. An element that is not kept passes its
+  // kept descendants up to its parent, so the tree keeps the meaningful structure.
   function surveyTree() {
-    const budget = { left: 3000 };
+    const budget = { left: 6000 };
     function walk(el, depth) {
       budget.left -= 1;
-      const node = describe(el);
-      if (depth < 6) {
+      const kept = [];
+      if (depth < 15) {
         for (const child of el.children) {
           if (budget.left <= 0) break;
-          node.children.push(walk(child, depth + 1));
+          kept.push(...walk(child, depth + 1));
         }
       }
-      return node;
+      if (depth > 0 && !isMeaningful(el)) return kept;
+      const node = describe(el);
+      node.children = kept;
+      return [node];
     }
-    return walk(document.body, 0);
+    return walk(document.body, 0)[0];
   }
 
   window.__omac = {
