@@ -37,7 +37,7 @@ struct AppCommands: Commands {
             Button("Reload") {
                 WebViewStore.shared.dispatcher.run(.refresh)
             }
-            .keyboardShortcut("r", modifiers: .command)
+            .keyboardShortcut("r", modifiers: [.command, .option])
         }
     }
 }
