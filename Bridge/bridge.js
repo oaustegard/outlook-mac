@@ -96,18 +96,24 @@
   }
 
   // The first visible element matching the selector whose aria-label or text is `label`, or null.
+  // OWA wraps a menu item in a role=menuitem container with the same label, and only the inner
+  // button acts. So a match that holds another menu item is skipped in favour of that item.
   function visibleLabelled(selector, label) {
     const want = label.toLowerCase();
     return Array.from(document.querySelectorAll(selector)).find(el => {
       const text = (el.getAttribute('aria-label') || el.textContent || '').trim().toLowerCase();
-      return text === want && el.getClientRects().length > 0;
+      return text === want && el.getClientRects().length > 0 &&
+        !el.querySelector('[role="menuitem"], [role="menuitemcheckbox"]');
     }) || null;
   }
 
   // Opens the context menu of the selected message, then clicks the item labelled `label`.
   // Outlook offers Pin and Mark as junk only there, not as keyboard shortcuts.
   async function clickMessageMenuItem(label) {
-    const row = visibleMatch('[role="listbox"] [role="option"][aria-selected="true"]');
+    // A clicked row takes focus but not aria-selected, so the focused option is the selection
+    // when no row carries aria-selected.
+    const focused = document.activeElement && document.activeElement.closest('[role="listbox"] [role="option"]');
+    const row = visibleMatch('[role="listbox"] [role="option"][aria-selected="true"]') || focused;
     if (!row) return false;
     const r = row.getBoundingClientRect();
     row.dispatchEvent(new MouseEvent('contextmenu', {
@@ -130,8 +136,18 @@
     return false;
   }
 
-  function pressKeys(keys) {
-    const target = document.activeElement || document.body;
+  // OWA reads the legacy keyCode and which fields, which KeyboardEvent init does not set, so each
+  // synthetic key carries them. Without them OWA ignores Enter in its search box.
+  const SPECIAL_KEY_CODES = { Enter: 13, Escape: 27, Backspace: 8, Tab: 9, Space: 32, Insert: 45, Delete: 46, Slash: 191 };
+  function keyCodeOf(code) {
+    if (SPECIAL_KEY_CODES[code] !== undefined) return SPECIAL_KEY_CODES[code];
+    if (/^Key[A-Z]$/.test(code)) return code.charCodeAt(3);
+    if (/^Digit[0-9]$/.test(code)) return code.charCodeAt(5);
+    return 0;
+  }
+
+  function pressKeys(keys, to) {
+    const target = to || document.activeElement || document.body;
     for (const k of keys) {
       const init = {
         key: k.key,
@@ -143,24 +159,59 @@
         bubbles: true,
         cancelable: true
       };
-      target.dispatchEvent(new KeyboardEvent('keydown', init));
-      target.dispatchEvent(new KeyboardEvent('keyup', init));
+      const code = keyCodeOf(k.code);
+      for (const type of ['keydown', 'keyup']) {
+        const e = new KeyboardEvent(type, init);
+        Object.defineProperty(e, 'keyCode', { get: () => code });
+        Object.defineProperty(e, 'which', { get: () => code });
+        target.dispatchEvent(e);
+      }
     }
     return true;
   }
 
-  function focusSearch() {
-    const input = document.querySelector('#topSearchInput input, input[aria-label*="Search" i]');
+  // The visible search box. On-premises OWA keeps it hidden behind an "Activate Search Textbox"
+  // button until it is clicked, so the button is pressed first when no box is showing.
+  const SEARCH_INPUT = '#topSearchInput input, input[role="combobox"][aria-label^="Search" i], input[aria-label*="Search" i]';
+  const SEARCH_ACTIVATOR = 'button[aria-label="Activate Search Textbox" i]';
+
+  async function openSearchBox() {
+    let input = visibleMatch(SEARCH_INPUT);
+    if (input) return input;
+    const activator = visibleMatch(SEARCH_ACTIVATOR);
+    if (!activator) return null;
+    activator.click();
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      input = visibleMatch(SEARCH_INPUT);
+      if (input) return input;
+      await delay(100);
+    }
+    return null;
+  }
+
+  // Sets the value the way React-style inputs expect: through the native setter, then an input event.
+  function setInputValue(input, value) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function submitSearch(query) {
+    const input = await openSearchBox();
     if (!input) return false;
     input.focus();
-    input.select();
-    return true;
+    setInputValue(input, query);
+    return pressKeys([{ key: 'Enter', code: 'Enter' }], input);
   }
 
   // Commands that are not in the keymap.
   const special = {
-    search: function () {
-      return focusSearch() || pressKeys([{ key: '/', code: 'Slash' }]);
+    search: async function () {
+      const input = await openSearchBox();
+      if (!input) return pressKeys([{ key: '/', code: 'Slash' }]);
+      input.focus();
+      input.select();
+      return true;
     },
     refresh: function () {
       location.reload();
@@ -254,14 +305,14 @@
       return true;
     },
 
-    // Puts the query in the page's search box and submits it with Enter.
+    // Puts the query in the page's search box and submits it with Enter. Like run, it returns at
+    // once and reports the result through the message handler, since Swift cannot await a Promise.
     searchFor: function (query) {
-      const input = document.querySelector('#topSearchInput input, input[aria-label*="Search" i]');
-      if (!input) return false;
-      input.focus();
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, query);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      return pressKeys([{ key: 'Enter', code: 'Enter' }]);
+      if (!serverOrigin || location.origin !== serverOrigin) return false;
+      submitSearch(query)
+        .catch(() => false)
+        .then(ok => report('searchFor', ok));
+      return true;
     },
 
     // The page's structure as a JSON string, for the layout survey.

@@ -4,3 +4,5 @@
 DerivedData/
 build/
 .DS_Store
+tools/live/node_modules/
+tools/live/shots/

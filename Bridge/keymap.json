@@ -2,8 +2,8 @@
   "newMail": {
     "view": "mail",
     "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }],
-    "selector": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]",
-    "ready": "button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]"
+    "selector": "button[title^=\"Write a new message\" i], button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]",
+    "ready": "button[title^=\"Write a new message\" i], button[aria-label^=\"New\" i], [role=\"button\"][title^=\"New\" i]"
   },
   "reply": { "view": "mail", "keys": [{ "key": "r", "code": "KeyR", "ctrlKey": true }] },
   "replyAll": { "view": "mail", "keys": [{ "key": "R", "code": "KeyR", "ctrlKey": true, "shiftKey": true }] },
