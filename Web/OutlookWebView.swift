@@ -8,6 +8,7 @@ struct OutlookWebView: NSViewRepresentable {
 
         let store = WebViewStore.shared
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.applicationNameForUserAgent = "Version/17.4 Safari/605.1.15"
         webView.navigationDelegate = store
         webView.uiDelegate = store
         webView.load(URLRequest(url: WebViewStore.homeURL))

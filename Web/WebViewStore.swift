@@ -6,18 +6,22 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let shared = WebViewStore()
     static let homeURL = URL(string: "https://outlook.office.com/mail/")!
 
-    // Hosts that stay in the web view so sign-in completes there.
-    // Placeholder list for M1; confirm against Oskar's tenant sign-in flow.
-    private let inAppHosts = [
-        "outlook.office.com",
-        "outlook.live.com",
-        "login.microsoftonline.com",
-        "login.live.com",
+    // Domains that stay in the web view, so Outlook and its sign-in flow work there.
+    private let inAppDomains = [
+        "office.com",
+        "office365.com",
+        "outlook.com",
+        "live.com",
+        "microsoftonline.com",
+        "microsoft.com",
+        "msauth.net",
+        "msftauth.net",
+        "windows.net",
     ]
 
     private func staysInApp(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return true }
-        return inAppHosts.contains { host == $0 || host.hasSuffix("." + $0) }
+        return inAppDomains.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
     private func openExternally(_ url: URL) {
