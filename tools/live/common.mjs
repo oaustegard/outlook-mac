@@ -12,8 +12,9 @@ export const repo = resolve(here, '..', '..');
 export const shotsDir = join(here, 'shots');
 export const profileDir = join(homedir(), 'Library', 'Application Support', 'omac-live');
 export const stateFile = join(profileDir, 'storage-state.json');
-export const target = 'https://webmail.meso-scale.com/';
-export const origin = 'https://webmail.meso-scale.com';
+// Set OWA_URL to your server's mailbox URL, e.g. OWA_URL=https://mail.example.com/owa/
+export const target = process.env.OWA_URL ?? 'https://mail.example.com/owa/';
+export const origin = new URL(target).origin;
 export const viewport = { width: 1440, height: 900 };
 
 // The app's bridge, built the way WebViewStore.loadBridgeScript builds it: the keymap as a JS

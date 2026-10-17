@@ -1,6 +1,6 @@
 // For each destructive command, runs the bridge with every write blocked and lists the write action it produced.
 // Nothing reaches the server, so no mail is deleted, archived or moved.
-import { openContext, openMailbox } from './common.mjs';
+import { openContext, openMailbox, origin } from './common.mjs';
 
 const cmds = process.argv.slice(2);
 for (const cmd of cmds) {
@@ -10,7 +10,7 @@ for (const cmd of cmds) {
   let armed = false;
   await context.route('**/*', (route) => {
     const req = route.request();
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method()) && req.url().startsWith('https://webmail.meso-scale.com')) {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method()) && req.url().startsWith(origin)) {
       if (armed) writes.add(req.headers()['x-owa-actionname'] || req.headers()['action'] || '?');
       return route.abort();
     }
