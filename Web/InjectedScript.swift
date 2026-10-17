@@ -61,10 +61,26 @@ enum InjectedScript {
                   var cs = getComputedStyle(document.body);
                   out.body = { fontFamily: cs.fontFamily, fontSize: cs.fontSize };
                 }
-                ['[role=main]', '[role=main] > [role=region]', '[role=tree]', '[role=listbox]',
-                 '[role=document]', '[role=option]', '[role=treeitem]', '[role=toolbar]'].forEach(function (sel) {
-                  try { out.counts[sel] = document.querySelectorAll(sel).length; } catch (e) { out.counts[sel] = 'err'; }
+                // Count every distinct selector used by the injected sheets (incl. @media/@supports).
+                var seen = {};
+                var walk = function (rules) {
+                  for (var i = 0; i < rules.length; i++) {
+                    var r = rules[i];
+                    if (r.selectorText) {
+                      r.selectorText.split(',').forEach(function (sel) {
+                        sel = sel.trim();
+                        if (!sel || seen.hasOwnProperty(sel)) return;
+                        try { seen[sel] = document.querySelectorAll(sel).length; } catch (e) { seen[sel] = 'err'; }
+                      });
+                    } else if (r.cssRules) { try { walk(r.cssRules); } catch (e) {} }
+                  }
+                };
+                Object.keys(S.sheets).forEach(function (sid) {
+                  var el = document.getElementById(sid);
+                  try { if (el && el.sheet) walk(el.sheet.cssRules); } catch (e) { out.counts['sheet:' + sid] = 'err:' + e.name; }
                 });
+                out.counts = Object.assign(out.counts, seen);
+                out.zero = Object.keys(seen).filter(function (k) { return seen[k] === 0; });
                 try { out.hasSupport = CSS.supports('selector(:has(a))'); } catch (e) { out.hasSupport = 'err'; }
                 out.styleSheets = document.styleSheets.length;
                 out.iframes = document.querySelectorAll('iframe').length;
