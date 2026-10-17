@@ -53,12 +53,26 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         )
     }
 
-    /// Replaces the page's user scripts: the bridge, the theme, and the user's stylesheet.
+    /// Replaces the page's user scripts: the server origin, the bridge, the theme, and the user's stylesheet.
     func installUserScripts(on controller: WKUserContentController) {
         controller.removeAllUserScripts()
+        if let originScript = serverOriginScript() { controller.addUserScript(originScript) }
         if let bridgeScript { controller.addUserScript(bridgeScript) }
         if let themeScript { controller.addUserScript(themeScript) }
         controller.addUserScript(userStyles.documentStartScript())
+    }
+
+    /// Sets window.__OWA_ORIGIN__ to the configured server's origin. The bridge acts only on that
+    /// origin, so its shortcuts do nothing on sign-in pages such as Duo.
+    private func serverOriginScript() -> WKUserScript? {
+        guard let url = ServerConfig.serverURL, let scheme = url.scheme, let host = url.host else { return nil }
+        var origin = "\(scheme)://\(host.lowercased())"
+        if let port = url.port { origin += ":\(port)" }
+        return WKUserScript(
+            source: "window.__OWA_ORIGIN__ = \(InjectedScript.literal(origin));",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
     }
 
     private func reloadUserStyles() {
@@ -86,7 +100,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         sessionStarted = true
         userStyles.onChange = { [weak self] in self?.reloadUserStyles() }
         userStyles.startWatching()
-        Task {
+        Task { [self] in
             // Cookies must be back before the first load, or the session starts signed out.
             await CookiePersistence.restore()
             loadServer()
@@ -109,8 +123,10 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
 
     /// Loads the configured server, if one has been set up.
     func loadServer() {
-        guard let url = ServerConfig.serverURL else { return }
-        dispatcher.webView?.load(URLRequest(url: url))
+        guard let url = ServerConfig.serverURL, let webView = dispatcher.webView else { return }
+        // Reinstalled here so a server changed in Settings is the origin the bridge sees on this load.
+        installUserScripts(on: webView.configuration.userContentController)
+        webView.load(URLRequest(url: url))
     }
 
     func search(_ query: String) {

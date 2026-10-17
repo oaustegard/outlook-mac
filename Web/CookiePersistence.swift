@@ -4,13 +4,17 @@ import Security
 import WebKit
 
 /// Keeps the Exchange session across quits. OWA's session cookies have no expiry, so WebKit
-/// drops them on quit. Matching cookies go into one Keychain item and are restored at launch.
+/// drops them on quit. Matching cookies go into session.json in the app's support folder and are
+/// restored at launch. The file is readable only by its owner, the same threat model as Safari's
+/// cookie store.
 @MainActor
 enum CookiePersistence {
-    private static let service = "com.oaustegard.outlook-mac.cookies"
-    private static let account = "cookies"
+    // Earlier builds kept the cookies in the Keychain. That item is removed on every launch.
+    private static let keychainService = "com.oaustegard.outlook-mac.cookies"
+    private static let keychainAccount = "cookies"
     private static let sessionLifetime: TimeInterval = 12 * 60 * 60
     private static let log = Logger(subsystem: "com.oaustegard.outlook-mac", category: "cookies")
+    private static let fileURL = UserStyles.directory.appendingPathComponent("session.json")
 
     private struct StoredCookie: Codable {
         let name: String
@@ -49,14 +53,34 @@ enum CookiePersistence {
                 sameSite: cookie.sameSitePolicy?.rawValue
             )
         }
-        guard let data = try? JSONEncoder().encode(stored) else { return }
-        writeKeychain(data)
+        do {
+            try write(JSONEncoder().encode(stored))
+        } catch {
+            log.error("Cookie save failed: \(describe(error), privacy: .public)")
+        }
     }
 
     static func restore() async {
-        guard let data = readKeychain(),
-              let stored = try? JSONDecoder().decode([StoredCookie].self, from: data)
-        else { return }
+        removeKeychainItem()
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            log.info("No saved session to restore")
+            return
+        } catch {
+            log.error("Cookie read failed: \(describe(error), privacy: .public)")
+            return
+        }
+
+        let stored: [StoredCookie]
+        do {
+            stored = try JSONDecoder().decode([StoredCookie].self, from: data)
+        } catch {
+            log.error("Cookie decode failed: \(describe(error), privacy: .public)")
+            return
+        }
 
         let now = Date()
         var restored = 0
@@ -73,7 +97,12 @@ enum CookiePersistence {
     }
 
     static func signOut() async {
-        deleteKeychain()
+        removeKeychainItem()
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            log.error("Session file not removed: \(describe(error), privacy: .public)")
+        }
         guard let serverHost = ServerConfig.serverURL?.host else { return }
         for cookie in await cookieStore.allCookies() where isRelevant(cookie, serverHost: serverHost) {
             await cookieStore.deleteCookie(cookie)
@@ -96,34 +125,32 @@ enum CookiePersistence {
         return properties
     }
 
-    private static func keychainQuery() -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+    /// Writes the file atomically, then restricts it to the owner.
+    private static func write(_ data: Data) throws {
+        try FileManager.default.createDirectory(at: UserStyles.directory, withIntermediateDirectories: true)
+        try data.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
-    private static func writeKeychain(_ data: Data) {
-        deleteKeychain()
-        var attributes = keychainQuery()
-        attributes[kSecValueData as String] = data
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        if status != errSecSuccess {
-            log.error("Cookie save to Keychain failed: \(status)")
+    /// Removes the Keychain item from earlier builds. A status of errSecItemNotFound is the normal
+    /// case after the first launch. Any other status is logged, not treated as fatal.
+    private static func removeKeychainItem() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            log.info("Old cookie Keychain item: OSStatus \(status)")
+        } else {
+            log.error("Old cookie Keychain item not removed: OSStatus \(status)")
         }
     }
 
-    private static func readKeychain() -> Data? {
-        var query = keychainQuery()
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
-    }
-
-    private static func deleteKeychain() {
-        SecItemDelete(keychainQuery() as CFDictionary)
+    // NSError keeps the domain and code, so a failure is identifiable in the log.
+    private static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
     }
 }

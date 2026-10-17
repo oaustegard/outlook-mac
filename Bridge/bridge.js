@@ -5,6 +5,9 @@
   if (window.__omac) return;
 
   const keymap = window.__omacKeymap || {};
+  // The configured server's origin, set by the app before this script runs. Commands act only on
+  // this origin, so they do nothing on sign-in pages on other hosts, such as Duo.
+  const serverOrigin = window.__OWA_ORIGIN__ || null;
 
   // On-premises OWA lives under /owa/ and routes by hash; outlook.com uses plain paths.
   const routes = {
@@ -37,7 +40,7 @@
 
   function routeFor(view) {
     const onOwa = location.pathname.indexOf('/owa') !== -1;
-    return location.origin + routes[view][onOwa ? 0 : 1];
+    return serverOrigin + routes[view][onOwa ? 0 : 1];
   }
 
   // Resolves true once the URL differs from `before`. Gives up after 5s.
@@ -131,6 +134,8 @@
   };
 
   async function runCommand(cmd) {
+    // Other origins, such as the Duo page, have no mailbox to act on, so commands do nothing there.
+    if (!serverOrigin || location.origin !== serverOrigin) return false;
     if (special[cmd]) return special[cmd]();
 
     const entry = keymap[cmd];
