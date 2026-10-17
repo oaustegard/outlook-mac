@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.windows.forEach { $0.tabbingMode = .disallowed }
         AutomationMonitor.shared.start()
+        SecondaryWindows.restoreOpen()
     }
 
     // Clicking the Dock icon with every window closed brings the main window back. Returning true
@@ -21,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Cookies are read asynchronously, so quitting waits for the save before it replies.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Set before AppKit closes the open windows, so closing them does not clear their saved state.
+        SecondaryWindows.prepareToQuit()
         Task { @MainActor in
             await WebViewStore.shared.saveCookies()
             NSApplication.shared.reply(toApplicationShouldTerminate: true)

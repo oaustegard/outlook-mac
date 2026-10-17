@@ -15,7 +15,7 @@ struct RootView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("New Message", systemImage: "square.and.pencil") {
-                        WebViewStore.shared.dispatcher.run(.newMail)
+                        WebViewStore.shared.run(.newMail)
                     }
                 }
             }
