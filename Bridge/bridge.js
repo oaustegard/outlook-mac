@@ -1,6 +1,6 @@
 // Injected at documentEnd into the main frame only. The app sets window.__omacKeymap just before
 // this script. window.__omac.run(cmd) runs one native menu command and reports the result to
-// Swift through the "omac" script message handler.
+// Swift through the "omac" script message handler. searchFor and survey are called from Swift.
 (function () {
   if (window.__omac) return;
 
@@ -29,6 +29,10 @@
   function inView(view) {
     const marker = '/' + view;
     return location.hash.indexOf(marker) !== -1 || location.pathname.indexOf(marker) !== -1;
+  }
+
+  function viewName() {
+    return Object.keys(routes).find(v => inView(v)) || 'other';
   }
 
   function routeFor(view) {
@@ -145,6 +149,47 @@
     return !entry.selector;
   }
 
+  // Structure of one element, down to 6 levels under body. Text content is never read.
+  // aria-label is kept only on buttons, whose labels are interface text; elsewhere only its presence
+  // is recorded. data-* attribute names are recorded, not their values. Elements wider than 150px
+  // also get their layout styles.
+  function describe(el) {
+    const rect = el.getBoundingClientRect();
+    const isButton = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button';
+    const node = {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || null,
+      role: el.getAttribute('role'),
+      label: isButton ? el.getAttribute('aria-label') : (el.hasAttribute('aria-label') ? '(present)' : null),
+      data: Array.from(el.attributes).filter(a => a.name.startsWith('data-')).map(a => a.name),
+      classes: Array.from(el.classList).slice(0, 3),
+      rect: [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)],
+      children: []
+    };
+    if (rect.width > 150) {
+      const s = getComputedStyle(el);
+      node.style = { width: s.width, minWidth: s.minWidth, maxWidth: s.maxWidth, flex: s.flex, position: s.position };
+    }
+    return node;
+  }
+
+  // Walks body to depth 6 and stops after 3000 elements.
+  function surveyTree() {
+    const budget = { left: 3000 };
+    function walk(el, depth) {
+      budget.left -= 1;
+      const node = describe(el);
+      if (depth < 6) {
+        for (const child of el.children) {
+          if (budget.left <= 0) break;
+          node.children.push(walk(child, depth + 1));
+        }
+      }
+      return node;
+    }
+    return walk(document.body, 0);
+  }
+
   window.__omac = {
     // Returns a plain boolean at once: evaluateJavaScript cannot convert a Promise, so the real
     // result goes back through the message handler when the command finishes.
@@ -153,6 +198,27 @@
         .catch(() => false)
         .then(ok => report(cmd, ok));
       return true;
+    },
+
+    // Puts the query in the page's search box and submits it with Enter.
+    searchFor: function (query) {
+      const input = document.querySelector('#topSearchInput input, input[aria-label*="Search" i]');
+      if (!input) return false;
+      input.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, query);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return pressKeys([{ key: 'Enter', code: 'Enter' }]);
+    },
+
+    // The page's structure as a JSON string, for the layout survey.
+    survey: function () {
+      const style = getComputedStyle(document.body);
+      return JSON.stringify({
+        view: viewName(),
+        viewport: [window.innerWidth, window.innerHeight],
+        font: { family: style.fontFamily, size: style.fontSize },
+        tree: surveyTree()
+      });
     }
   };
 })();

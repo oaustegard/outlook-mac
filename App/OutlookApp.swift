@@ -8,6 +8,8 @@ struct OutlookApp: App {
         WindowGroup {
             RootView()
         }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified)
         .commands { AppCommands() }
     }
 }

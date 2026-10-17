@@ -9,14 +9,22 @@ final class CommandDispatcher: NSObject, WKScriptMessageHandler {
     private let log = Logger(subsystem: "com.oaustegard.outlook-mac", category: "bridge")
 
     func run(_ command: OutlookCommand) {
+        evaluate("window.__omac && window.__omac.run('\(command.rawValue)')", label: command.rawValue)
+    }
+
+    /// Puts the query in the page's search box and submits it.
+    func searchFor(_ query: String) {
+        evaluate("window.__omac && window.__omac.searchFor(\(InjectedScript.literal(query)))", label: "searchFor")
+    }
+
+    private func evaluate(_ script: String, label: String) {
         guard let webView else {
-            log.error("No web view attached; dropped \(command.rawValue, privacy: .public)")
+            log.error("No web view attached; dropped \(label, privacy: .public)")
             return
         }
-        let script = "window.__omac && window.__omac.run('\(command.rawValue)')"
         webView.evaluateJavaScript(script) { [log] _, error in
             if let error {
-                log.error("run \(command.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                log.error("\(label, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

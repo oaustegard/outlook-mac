@@ -7,13 +7,19 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     static let shared = WebViewStore()
 
     let dispatcher = CommandDispatcher()
+    let userStyles = UserStyles()
     private let nav = Logger(subsystem: "com.oaustegard.outlook-mac", category: "nav")
     private var popupWindows: [NSWindow] = []
     private var sessionStarted = false
     private var saveTimer: Timer?
 
-    // Nil if bridge.js is missing from the bundle; the menu commands then do nothing.
+    // Nil if bridge.js or keymap.json is missing from the bundle; the menu commands then do nothing.
     let bridgeScript = WebViewStore.loadBridgeScript()
+    // Nil if theme.css is missing from the bundle; the page then keeps its own fonts.
+    let themeScript = WebViewStore.loadThemeScript()
+
+    // Page zoom, persisted across launches. 0.9 is the default.
+    private(set) var pageZoom: Double = UserDefaults.standard.object(forKey: "pageZoom") as? Double ?? 0.9
 
     // A login the user typed, saved to the Keychain once the navigation that used it finishes.
     private var pendingLogin: (host: String, login: CredentialStore.Login)?
@@ -36,6 +42,31 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
     }
 
+    private static func loadThemeScript() -> WKUserScript? {
+        guard let url = Bundle.main.url(forResource: "theme", withExtension: "css"),
+              let css = try? String(contentsOf: url, encoding: .utf8)
+        else { return nil }
+        return WKUserScript(
+            source: InjectedScript.style(id: "omac-theme", css: css),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+    }
+
+    /// Replaces the page's user scripts: the bridge, the theme, and the user's stylesheet.
+    func installUserScripts(on controller: WKUserContentController) {
+        controller.removeAllUserScripts()
+        if let bridgeScript { controller.addUserScript(bridgeScript) }
+        if let themeScript { controller.addUserScript(themeScript) }
+        controller.addUserScript(userStyles.documentStartScript())
+    }
+
+    private func reloadUserStyles() {
+        guard let webView = dispatcher.webView else { return }
+        installUserScripts(on: webView.configuration.userContentController)
+        webView.evaluateJavaScript(userStyles.applyScript(), completionHandler: nil)
+    }
+
     // Microsoft domains that stay in the web view, so their sign-in flow works there.
     private let microsoftDomains = [
         "office.com",
@@ -53,6 +84,8 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     func startSession() {
         guard !sessionStarted else { return }
         sessionStarted = true
+        userStyles.onChange = { [weak self] in self?.reloadUserStyles() }
+        userStyles.startWatching()
         Task {
             // Cookies must be back before the first load, or the session starts signed out.
             await CookiePersistence.restore()
@@ -78,6 +111,60 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     func loadServer() {
         guard let url = ServerConfig.serverURL else { return }
         dispatcher.webView?.load(URLRequest(url: url))
+    }
+
+    func search(_ query: String) {
+        dispatcher.searchFor(query)
+    }
+
+    func editStylesheet() {
+        userStyles.openInEditor()
+    }
+
+    func zoomIn() { setZoom(pageZoom + 0.05) }
+    func zoomOut() { setZoom(pageZoom - 0.05) }
+    func actualSize() { setZoom(1.0) }
+
+    private func setZoom(_ value: Double) {
+        pageZoom = min(3.0, max(0.5, (value / 0.05).rounded() * 0.05))
+        UserDefaults.standard.set(pageZoom, forKey: "pageZoom")
+        dispatcher.webView?.pageZoom = CGFloat(pageZoom)
+    }
+
+    /// Writes the page's structure at three window widths to dom-survey-<view>.json in the app's
+    /// support folder. A debug aid for layout work; the window is restored to its size afterwards.
+    func exportSurvey() {
+        Task {
+            guard let webView = dispatcher.webView, let window = webView.window else { return }
+            let original = window.frame
+            var widths: [String] = []
+            var view = "other"
+            for width in [900, 1280, 1800] {
+                var frame = original
+                frame.size.width = CGFloat(width)
+                window.setFrame(frame, display: true)
+                try? await Task.sleep(for: .seconds(1.5))
+                guard let json = try? await webView.evaluateJavaScript("window.__omac && window.__omac.survey()") as? String,
+                      let parsed = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+                else {
+                    nav.error("survey failed at width \(width, privacy: .public)")
+                    continue
+                }
+                view = parsed["view"] as? String ?? view
+                widths.append("\"\(width)\":\(json)")
+            }
+            window.setFrame(original, display: true)
+
+            guard !widths.isEmpty else { return }
+            do {
+                try FileManager.default.createDirectory(at: UserStyles.directory, withIntermediateDirectories: true)
+                let file = UserStyles.directory.appendingPathComponent("dom-survey-\(view).json")
+                try Data("{\(widths.joined(separator: ","))}".utf8).write(to: file, options: .atomic)
+                nav.info("survey written for \(view, privacy: .public)")
+            } catch {
+                nav.error("survey write failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // The Exchange server's registrable domain (for example example.com for mail.example.com),

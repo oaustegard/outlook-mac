@@ -54,7 +54,30 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
+            Button("Zoom In") {
+                WebViewStore.shared.zoomIn()
+            }
+            .keyboardShortcut("=", modifiers: .command)
+            Button("Zoom Out") {
+                WebViewStore.shared.zoomOut()
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            Button("Actual Size") {
+                WebViewStore.shared.actualSize()
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            Divider()
+            Button("Edit Stylesheet…") {
+                WebViewStore.shared.editStylesheet()
+            }
+            Divider()
             item("Reload", .refresh, "r", [.command, .option])
+        }
+
+        CommandGroup(after: .help) {
+            Button("Export Page Survey") {
+                WebViewStore.shared.exportSurvey()
+            }
         }
     }
 
