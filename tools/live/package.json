@@ -1,0 +1,13 @@
+{
+  "name": "omac-live",
+  "private": true,
+  "description": "Live WebKit harness for tuning owa.css against on-prem OWA",
+  "type": "module",
+  "scripts": {
+    "login": "node login.mjs",
+    "iterate": "node iterate.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.56.1"
+  }
+}
