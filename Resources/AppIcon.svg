@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2B7CD3"/>
+      <stop offset="1" stop-color="#0F4C9C"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle body: 824x824 centred on the 1024 canvas, corner radius 185 -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)" filter="url(#shadow)"/>
+
+  <!-- Envelope: white stroked outline, V flap. Path box 380x240, centred on (512, 512) -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="322" y="392" width="380" height="240" rx="24" ry="24"/>
+    <path d="M342 412 L512 545 L682 412"/>
+  </g>
+
+  <!-- O ring at the envelope's lower-left corner. The background-coloured disc is a knockout gap -->
+  <circle cx="322" cy="632" r="77" fill="url(#bg)"/>
+  <circle cx="322" cy="632" r="56" fill="none" stroke="#FFFFFF" stroke-width="22"/>
+</svg>
