@@ -7,7 +7,7 @@ struct RootView: View {
 
     var body: some View {
         OutlookWebView()
-            .frame(minWidth: 720, minHeight: 480)
+            .frame(minWidth: WindowSize.width, minHeight: WindowSize.height)
             .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
             .onSubmit(of: .search) {
                 WebViewStore.shared.search(searchText)
