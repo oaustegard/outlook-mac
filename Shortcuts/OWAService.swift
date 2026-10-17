@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import WebKit
 
 /// Calls Outlook Web's own service.svc from the signed-in page. The page's session cookies go
@@ -9,8 +10,13 @@ enum OWAService {
     /// How many of the newest messages a search reads before filtering. Keeps each call small.
     private static let scanSize = 200
 
+    /// Shortcuts gives an intent a short time to answer, so waits stay well under it.
+    private static let pageWait: Duration = .seconds(5)
+    private static let log = Logger(subsystem: "com.oaustegard.outlook-mac", category: "shortcuts")
+
     /// Runs one service.svc action and returns the reply's Body.
     static func send(_ action: String, body: [String: Any]) async throws -> [String: Any] {
+        log.notice("service call \(action, privacy: .public) started")
         let webView = try await readyWebView()
         guard let server = ServerConfig.serverURL, let origin = originString(server) else {
             throw OWAError.notConfigured
@@ -35,7 +41,16 @@ enum OWAService {
         let isJSON = reply["json"] as? Bool ?? false
         // A sign-in page or a session timeout answers with HTML or 401/403/440, never JSON.
         if status == 401 || status == 403 || status == 440 || !isJSON { throw OWAError.signedOut }
-        guard (200..<300).contains(status) else { throw OWAError.server("HTTP \(status)") }
+        guard (200..<300).contains(status) else {
+            // The exception name says what the server objected to. The fault message can carry mail details, so it stays out.
+            let text = reply["text"] as? String ?? ""
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+            let fault = parsed["Body"] as? [String: Any] ?? parsed
+            let exception = fault["ExceptionName"] as? String ?? fault["ResponseCode"] as? String
+                ?? "none; top-level keys: \(parsed.keys.sorted().joined(separator: ","))"
+            log.error("service call \(action, privacy: .public) returned \(status, privacy: .public): \(exception, privacy: .public)")
+            throw OWAError.server("HTTP \(status) \(exception)")
+        }
         guard let text = reply["text"] as? String,
               let parsed = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
         else { throw OWAError.badReply }
@@ -165,18 +180,19 @@ enum OWAService {
 
     /// The web view once the app has created it. Waits up to 15 seconds for a window that is still opening.
     static func waitForWebView() async throws -> WKWebView {
-        let deadline = ContinuousClock.now + .seconds(15)
+        let deadline = ContinuousClock.now + pageWait
         while ContinuousClock.now < deadline {
             if let webView = WebViewStore.shared.dispatcher.webView { return webView }
             try await Task.sleep(for: .milliseconds(250))
         }
+        log.notice("no web view after waiting; Outlook window not open")
         throw OWAError.notRunning
     }
 
     /// Waits for a load in progress, up to 15 seconds. A load that has not started yet counts as in progress for a moment.
     private static func waitUntilLoaded(_ webView: WKWebView) async throws {
         try await Task.sleep(for: .milliseconds(300))
-        let deadline = ContinuousClock.now + .seconds(15)
+        let deadline = ContinuousClock.now + pageWait
         while webView.isLoading, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(250))
         }
@@ -216,7 +232,7 @@ enum OWAService {
             guard cookie.name == "X-OWA-CANARY", !cookie.value.isEmpty else { return false }
             let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
             return host == domain || host.hasSuffix("." + domain)
-        }?.value
+        }?.value.removingPercentEncoding
     }
 
     private static func encoded(_ text: String) -> String {
