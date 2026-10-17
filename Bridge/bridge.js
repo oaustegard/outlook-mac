@@ -180,12 +180,16 @@
     if (input) return input;
     const activator = visibleMatch(SEARCH_ACTIVATOR);
     if (!activator) return null;
-    activator.click();
-    const started = Date.now();
-    while (Date.now() - started < 3000) {
-      input = visibleMatch(SEARCH_INPUT);
-      if (input) return input;
-      await delay(100);
+    // A press right after load sometimes does not open the box, so press again if it has not opened.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt === 0) activator.click();
+      else visibleMatch(SEARCH_ACTIVATOR)?.click();
+      const started = Date.now();
+      while (Date.now() - started < 1500) {
+        input = visibleMatch(SEARCH_INPUT);
+        if (input) return input;
+        await delay(100);
+      }
     }
     return null;
   }
@@ -197,10 +201,29 @@
   }
 
   async function submitSearch(query) {
-    const input = await openSearchBox();
+    let input = await openSearchBox();
     if (!input) return false;
     input.focus();
     setInputValue(input, query);
+    // OWA can clear the box when focus settles, so the value is checked once more after a short wait.
+    await delay(250);
+    input = visibleMatch(SEARCH_INPUT) || input;
+    if (input.value !== query) {
+      input.focus();
+      setInputValue(input, query);
+      await delay(150);
+    }
+    // Only lengths and flags are reported, never the query text or results.
+    try {
+      window.webkit.messageHandlers.omac.postMessage({
+        type: 'search',
+        valueLength: input.value.length,
+        focused: document.activeElement === input,
+        searchPath: location.hash.indexOf('/search') !== -1
+      });
+    } catch (e) {
+      // Not running inside the app, so there is nowhere to report to.
+    }
     return pressKeys([{ key: 'Enter', code: 'Enter' }], input);
   }
 
