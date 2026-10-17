@@ -46,6 +46,54 @@ enum InjectedScript {
               }
               return true;
             };
+            // Posts items as several lines, each under ~800 chars, so os_log never truncates.
+            S.chunk = function (prefix, items) {
+              var buf = [], len = 0, part = 1;
+              var flush = function () { if (buf.length) { post(prefix + ' [' + (part++) + '] ' + buf.join(', ')); buf = []; len = 0; } };
+              items.forEach(function (it) {
+                if (it.length > 700) { it = it.slice(0, 700) + '...'; }
+                if (len + it.length > 700) { flush(); }
+                buf.push(it); len += it.length + 2;
+              });
+              flush();
+              if (part === 1) { post(prefix + ' (none)'); }
+            };
+            // Structure of the first folder row and message row: tags, roles, classes, inline
+            // styles and computed box metrics only. No text content or other attributes.
+            S.struct = function () {
+              try {
+                var cls = function (el) { return (el.getAttribute('class') || '').trim().split(/ +/).filter(Boolean).join('.'); };
+                var box = function (el) {
+                  var c = getComputedStyle(el);
+                  return 'h=' + c.height + ' minH=' + c.minHeight + ' lh=' + c.lineHeight + ' pad=' + c.paddingTop + '/' + c.paddingBottom +
+                    ' mar=' + c.marginTop + '/' + c.marginBottom + ' pos=' + c.position + ' disp=' + c.display + ' fs=' + c.fontSize;
+                };
+                var desc = function (el) {
+                  return el.tagName.toLowerCase() + (el.getAttribute('role') ? '[role=' + el.getAttribute('role') + ']' : '') +
+                    ' class="' + cls(el) + '" style="' + (el.getAttribute('style') || '') + '"';
+                };
+                var dump = function (label, row) {
+                  if (!row) { post('css: struct ' + label + ' not found'); return; }
+                  var anc = [], p = row.parentElement;
+                  for (var i = 0; i < 2 && p; i++, p = p.parentElement) {
+                    var c = getComputedStyle(p);
+                    anc.push((i ? 'grandparent ' : 'parent ') + desc(p) + ' pos=' + c.position + ' h=' + c.height + ' top=' + c.top);
+                  }
+                  S.chunk('css: struct ' + label + ' ancestors', anc);
+                  var lines = [], count = 0;
+                  var visit = function (el, depth) {
+                    if (count >= 40 || depth > 8) { return; }
+                    count++;
+                    lines.push('d' + depth + ' ' + desc(el) + ' ' + box(el));
+                    for (var j = 0; j < el.children.length; j++) { visit(el.children[j], depth + 1); }
+                  };
+                  visit(row, 0);
+                  lines.forEach(function (l, n) { S.chunk('css: struct ' + label + ' #' + n, [l]); });
+                };
+                dump('treeitem', document.querySelector('[role=tree] [role=treeitem]'));
+                dump('option', document.querySelector('[role=listbox] [role=option]'));
+              } catch (e) { post('css: struct failed ' + e); }
+            };
             S.diag = function (reason) {
               try {
                 var out = { reason: reason, readyState: document.readyState, host: location.host,
@@ -84,7 +132,12 @@ enum InjectedScript {
                 try { out.hasSupport = CSS.supports('selector(:has(a))'); } catch (e) { out.hasSupport = 'err'; }
                 out.styleSheets = document.styleSheets.length;
                 out.iframes = document.querySelectorAll('iframe').length;
+                var counts = out.counts, zero = out.zero;
+                delete out.counts; delete out.zero;
                 post('css: diag ' + JSON.stringify(out));
+                S.chunk('css: diag counts', Object.keys(counts).map(function (k) { return JSON.stringify(k) + ':' + JSON.stringify(counts[k]); }));
+                S.chunk('css: diag zero', zero.map(function (k) { return JSON.stringify(k); }));
+                if (reason === 'load+3s') { S.struct(); }
               } catch (e) { post('css: diag failed ' + e); }
             };
             // Puts back any sheet missing from the current document. Re-observes when the

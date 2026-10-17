@@ -319,6 +319,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
             defer: false
         )
         window.title = "Outlook"
+        window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()

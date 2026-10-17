@@ -53,8 +53,27 @@ html, body {
    toolbar does not duplicate, and the content below it is absolutely positioned at top 50px
    by OWA's script, so hiding it would leave a blank strip. Only flatten it. */
 #O365_NavHeader {
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  line-height: 32px !important;
+  overflow: hidden !important;
   box-shadow: none !important;
   border-bottom: 1px solid var(--omac-separator) !important;
+}
+/* Scale the header's buttons/icons into the 32px bar; they stay visible and clickable. */
+#O365_NavHeader > *,
+#O365_NavHeader button,
+#O365_NavHeader [role=button],
+#O365_NavHeader a {
+  height: 32px !important;
+  min-height: 0 !important;
+  max-height: 32px !important;
+  line-height: 32px !important;
+}
+#O365_NavHeader img,
+#O365_NavHeader svg {
+  max-height: 20px !important;
 }
 
 /* ---- Mail layout (survey: deep-dom-survey-mail.json, branch dom-survey) ------------------
