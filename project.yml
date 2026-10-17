@@ -15,7 +15,10 @@ targets:
       - path: Bridge
         excludes:
           - bridge.js
+          - keymap.json
       - path: Bridge/bridge.js
+        buildPhase: resources
+      - path: Bridge/keymap.json
         buildPhase: resources
     settings:
       base:

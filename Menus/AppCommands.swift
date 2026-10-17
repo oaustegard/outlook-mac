@@ -2,12 +2,8 @@ import SwiftUI
 
 struct AppCommands: Commands {
     var body: some Commands {
-        CommandGroup(replacing: .newItem) {
-            Button("New Message") {
-                WebViewStore.shared.dispatcher.run(.newMail)
-            }
-            .keyboardShortcut("n", modifiers: .command)
-        }
+        // Removes File > New Window and File > New Message; New Message lives under Mail.
+        CommandGroup(replacing: .newItem) {}
 
         CommandGroup(after: .appInfo) {
             Button("Change Server…") {
@@ -16,34 +12,58 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(after: .textEditing) {
-            Button("Search") {
-                WebViewStore.shared.dispatcher.run(.search)
-            }
-            .keyboardShortcut("f", modifiers: [.command, .option])
+            item("Search", .search, "f", [.command, .option])
         }
 
-        CommandMenu("Go") {
-            Button("Inbox") {
-                WebViewStore.shared.dispatcher.run(.gotoInbox)
-            }
-            .keyboardShortcut("1", modifiers: .command)
+        CommandMenu("Mail") {
+            item("Inbox", .gotoInbox, "1")
+            item("New Message", .newMail, "n")
+            item("Reply", .reply, "r")
+            item("Reply All", .replyAll, "r", [.command, .shift])
+            item("Forward", .forward, "f", [.command, .shift])
+            item("Send", .send, .return)
+            item("Delete", .delete, .delete)
+            item("Archive", .archive, "a", [.command, .control])
+            item("Mark as Read", .markRead, "u", [.command, .shift])
+            item("Mark as Unread", .markUnread, "u", [.command, .option, .shift])
+            item("Flag", .flag, "l", [.command, .shift])
+        }
 
-            Button("Calendar") {
-                WebViewStore.shared.dispatcher.run(.gotoCalendar)
-            }
-            .keyboardShortcut("2", modifiers: .command)
+        CommandMenu("Calendar") {
+            item("Calendar", .gotoCalendar, "2")
+            item("New Event", .newEvent, "n", [.command, .option])
+            item("Today", .calToday, "t")
+            Divider()
+            item("Day", .calDay, "1", [.command, .control])
+            item("Work Week", .calWorkWeek, "2", [.command, .control])
+            item("Week", .calWeek, "3", [.command, .control])
+            item("Month", .calMonth, "4", [.command, .control])
+        }
 
-            Button("People") {
-                WebViewStore.shared.dispatcher.run(.gotoPeople)
-            }
-            .keyboardShortcut("3", modifiers: .command)
+        CommandMenu("People") {
+            item("People", .gotoPeople, "3")
+            item("New Contact", .newContact, "n", [.command, .control])
+        }
+
+        CommandMenu("Tasks") {
+            item("Tasks", .gotoTasks, "4")
+            item("New Task", .newTask, "n", [.command, .control, .option])
         }
 
         CommandGroup(after: .toolbar) {
-            Button("Reload") {
-                WebViewStore.shared.dispatcher.run(.refresh)
-            }
-            .keyboardShortcut("r", modifiers: [.command, .option])
+            item("Reload", .refresh, "r", [.command, .option])
         }
+    }
+
+    private func item(
+        _ title: String,
+        _ command: OutlookCommand,
+        _ key: KeyEquivalent,
+        _ modifiers: EventModifiers = .command
+    ) -> some View {
+        Button(title) {
+            WebViewStore.shared.dispatcher.run(command)
+        }
+        .keyboardShortcut(key, modifiers: modifiers)
     }
 }

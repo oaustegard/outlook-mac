@@ -1,8 +1,18 @@
-// Injected at documentEnd into the main frame only. Exposes window.__omac.run(cmd)
-// for the native menu commands and reports each run to Swift through the "omac"
-// script message handler.
+// Injected at documentEnd into the main frame only. The app sets window.__omacKeymap just before
+// this script. window.__omac.run(cmd) runs one native menu command and reports the result to
+// Swift through the "omac" script message handler.
 (function () {
   if (window.__omac) return;
+
+  const keymap = window.__omacKeymap || {};
+
+  // On-premises OWA lives under /owa/ and routes by hash; outlook.com uses plain paths.
+  const routes = {
+    mail: ['/owa/#path=/mail', '/mail/inbox'],
+    calendar: ['/owa/#path=/calendar', '/calendar'],
+    people: ['/owa/#path=/people', '/people'],
+    tasks: ['/owa/#path=/tasks', '/tasks']
+  };
 
   function report(cmd, ok) {
     try {
@@ -12,10 +22,64 @@
     }
   }
 
-  function keyPress(key, code) {
-    const init = { key: key, code: code, bubbles: true, cancelable: true };
-    document.body.dispatchEvent(new KeyboardEvent('keydown', init));
-    document.body.dispatchEvent(new KeyboardEvent('keyup', init));
+  function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function inView(view) {
+    const marker = '/' + view;
+    return location.hash.indexOf(marker) !== -1 || location.pathname.indexOf(marker) !== -1;
+  }
+
+  function routeFor(view) {
+    const onOwa = location.pathname.indexOf('/owa') !== -1;
+    return location.origin + routes[view][onOwa ? 0 : 1];
+  }
+
+  // Resolves true once the URL differs from `before` and 600ms have passed. Gives up after 5s.
+  function waitForUrlChange(before) {
+    return new Promise(resolve => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        if (location.href !== before) {
+          clearInterval(timer);
+          resolve(true);
+        } else if (Date.now() - started > 5000) {
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, 50);
+    }).then(changed => (changed ? delay(600).then(() => true) : false));
+  }
+
+  async function ensureView(view) {
+    if (!view || !routes[view] || inView(view)) return true;
+    const before = location.href;
+    location.assign(routeFor(view));
+    return waitForUrlChange(before);
+  }
+
+  function visibleMatch(selector) {
+    const el = document.querySelector(selector);
+    return el && el.getClientRects().length > 0 ? el : null;
+  }
+
+  function pressKeys(keys) {
+    const target = document.activeElement || document.body;
+    for (const k of keys) {
+      const init = {
+        key: k.key,
+        code: k.code,
+        ctrlKey: !!k.ctrlKey,
+        shiftKey: !!k.shiftKey,
+        altKey: !!k.altKey,
+        metaKey: !!k.metaKey,
+        bubbles: true,
+        cancelable: true
+      };
+      target.dispatchEvent(new KeyboardEvent('keydown', init));
+      target.dispatchEvent(new KeyboardEvent('keyup', init));
+    }
     return true;
   }
 
@@ -27,28 +91,10 @@
     return true;
   }
 
-  // On-premises OWA lives under /owa/ and routes by hash; outlook.com uses plain paths.
-  function go(owaTarget, plainTarget) {
-    const onOwa = location.pathname.indexOf('/owa') !== -1;
-    location.assign(location.origin + (onOwa ? owaTarget : plainTarget));
-    return true;
-  }
-
-  const commands = {
-    newMail: function () {
-      return keyPress('n', 'KeyN');
-    },
+  // Commands that are not in the keymap.
+  const special = {
     search: function () {
-      return focusSearch() || keyPress('/', 'Slash');
-    },
-    gotoInbox: function () {
-      return go('/owa/#path=/mail', '/mail/inbox');
-    },
-    gotoCalendar: function () {
-      return go('/owa/#path=/calendar', '/calendar');
-    },
-    gotoPeople: function () {
-      return go('/owa/#path=/people', '/people');
+      return focusSearch() || pressKeys([{ key: '/', code: 'Slash' }]);
     },
     refresh: function () {
       location.reload();
@@ -56,17 +102,33 @@
     }
   };
 
+  async function runCommand(cmd) {
+    if (special[cmd]) return special[cmd]();
+
+    const entry = keymap[cmd];
+    if (!entry) return false;
+    if (!(await ensureView(entry.view))) return false;
+
+    if (entry.selector) {
+      const el = visibleMatch(entry.selector);
+      if (el) {
+        el.click();
+        return true;
+      }
+    }
+    if (entry.keys && entry.keys.length > 0) return pressKeys(entry.keys);
+    // A view-only command succeeds once the view is open. A selector-only command needs its element.
+    return !entry.selector;
+  }
+
   window.__omac = {
     run: function (cmd) {
-      let ok = false;
-      try {
-        const fn = commands[cmd];
-        ok = fn ? fn() === true : false;
-      } catch (e) {
-        ok = false;
-      }
-      report(cmd, ok);
-      return ok;
+      return runCommand(cmd)
+        .catch(() => false)
+        .then(ok => {
+          report(cmd, ok);
+          return ok;
+        });
     }
   };
 })();

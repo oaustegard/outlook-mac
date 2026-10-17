@@ -24,9 +24,13 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     ]
 
     private static func loadBridgeScript() -> WKUserScript? {
-        guard let url = Bundle.main.url(forResource: "bridge", withExtension: "js"),
-              let source = try? String(contentsOf: url, encoding: .utf8)
+        guard let bridgeURL = Bundle.main.url(forResource: "bridge", withExtension: "js"),
+              let keymapURL = Bundle.main.url(forResource: "keymap", withExtension: "json"),
+              let bridge = try? String(contentsOf: bridgeURL, encoding: .utf8),
+              let keymap = try? String(contentsOf: keymapURL, encoding: .utf8)
         else { return nil }
+        // keymap.json is a JSON object literal, so it is also a valid JavaScript expression.
+        let source = "window.__omacKeymap = \(keymap);\n" + bridge
         return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
     }
 
