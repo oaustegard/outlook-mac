@@ -12,6 +12,13 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     private var popupWindows: [NSWindow] = []
     private var sessionStarted = false
     private var saveTimer: Timer?
+    // Every window's web view (mail, Calendar, People), so styles and zoom reach all of them. Weak, so a
+    // view goes away with its window.
+    private let webViews = NSHashTable<WKWebView>.weakObjects()
+    // The mail window's web view. Commands fall back to it when no app window is key.
+    private(set) weak var mailWebView: WKWebView?
+    // Cookies are restored once, and every window waits for that before its first load.
+    private lazy var cookiesRestored: Task<Void, Never> = Task { await CookiePersistence.restore() }
 
     // Nil if bridge.js or keymap.json is missing from the bundle; the menu commands then do nothing.
     let bridgeScript = WebViewStore.loadBridgeScript()
@@ -47,12 +54,47 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         controller.addUserScript(userStyles.documentStartScript())
     }
 
+    /// Makes the web view for one window. Every window's view uses the default website data store, so
+    /// they share one sign-in, and each gets the same scripts, zoom and navigation handling.
+    func makeWebView() -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.applicationNameForUserAgent = "Version/17.4 Safari/605.1.15"
+        installUserScripts(on: configuration.userContentController)
+        configuration.userContentController.add(dispatcher, name: CommandDispatcher.messageHandlerName)
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.pageZoom = CGFloat(pageZoom)
+        // Lets Safari's Web Inspector (Develop menu) attach to the page.
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+        // Shows behind the page while it loads or overscrolls. Set to the page's own colour once the
+        // DOM survey has it.
+        webView.underPageBackgroundColor = .windowBackgroundColor
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webViews.add(webView)
+        return webView
+    }
+
+    /// The mail window's web view.
+    func makeMailWebView() -> WKWebView {
+        let webView = makeWebView()
+        mailWebView = webView
+        return webView
+    }
+
+    /// Resolves once the saved cookies are back in the shared store. Waiting for it keeps a window's
+    /// first request from going out signed out.
+    func restoredSession() async {
+        await cookiesRestored.value
+    }
+
     /// Sets window.__OWA_ORIGIN__ to the configured server's origin. The bridge acts only on that
     /// origin, so its shortcuts do nothing on sign-in pages such as Duo.
     private func serverOriginScript() -> WKUserScript? {
-        guard let url = ServerConfig.serverURL, let scheme = url.scheme, let host = url.host else { return nil }
-        var origin = "\(scheme)://\(host.lowercased())"
-        if let port = url.port { origin += ":\(port)" }
+        guard let url = ServerConfig.serverURL, let origin = ServerConfig.origin(of: url) else { return nil }
         return WKUserScript(
             source: "window.__OWA_ORIGIN__ = \(InjectedScript.literal(origin));",
             injectionTime: .atDocumentStart,
@@ -61,23 +103,11 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     }
 
     private func reloadUserStyles() {
-        guard let webView = dispatcher.webView else { return }
-        installUserScripts(on: webView.configuration.userContentController)
-        webView.evaluateJavaScript(userStyles.applyScript(), completionHandler: nil)
+        for webView in webViews.allObjects {
+            installUserScripts(on: webView.configuration.userContentController)
+            webView.evaluateJavaScript(userStyles.applyScript(), completionHandler: nil)
+        }
     }
-
-    // Microsoft domains that stay in the web view, so their sign-in flow works there.
-    private let microsoftDomains = [
-        "office.com",
-        "office365.com",
-        "outlook.com",
-        "live.com",
-        "microsoftonline.com",
-        "microsoft.com",
-        "msauth.net",
-        "msftauth.net",
-        "windows.net",
-    ]
 
     /// Restores saved cookies, then loads the server. Runs once, when the web view is created.
     func startSession() {
@@ -87,7 +117,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         userStyles.startWatching()
         Task { [self] in
             // Cookies must be back before the first load, or the session starts signed out.
-            await CookiePersistence.restore()
+            await restoredSession()
             loadServer()
             saveTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
                 Task { @MainActor in await self?.saveCookies() }
@@ -102,20 +132,34 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     func signOut() {
         Task {
             await CookiePersistence.signOut()
-            dispatcher.webView?.reload()
+            // Every window's session is gone, so every window reloads into the sign-in page.
+            for webView in webViews.allObjects {
+                webView.reload()
+            }
         }
     }
 
     /// Loads the configured server, if one has been set up.
     func loadServer() {
-        guard let url = ServerConfig.serverURL, let webView = dispatcher.webView else { return }
+        guard let url = ServerConfig.serverURL, let webView = mailWebView else { return }
         // Reinstalled here so a server changed in Settings is the origin the bridge sees on this load.
         installUserScripts(on: webView.configuration.userContentController)
         webView.load(URLRequest(url: url))
     }
 
+    /// The web view a menu command or toolbar action acts on: the key window's, or the mail window's
+    /// when no app window is key (a sign-in popup, or the server sheet).
+    private var activeWebView: WKWebView? {
+        let key = NSApplication.shared.keyWindow
+        return webViews.allObjects.first { $0.window != nil && $0.window === key } ?? mailWebView
+    }
+
+    func run(_ command: OutlookCommand) {
+        dispatcher.run(command, in: activeWebView)
+    }
+
     func search(_ query: String) {
-        dispatcher.searchFor(query)
+        dispatcher.searchFor(query, in: activeWebView)
     }
 
     func editStylesheet() {
@@ -126,17 +170,20 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     func zoomOut() { setZoom(pageZoom - 0.05) }
     func actualSize() { setZoom(0.9) }
 
+    // Zoom is one preference, so every window's page takes it.
     private func setZoom(_ value: Double) {
         pageZoom = min(3.0, max(0.5, (value / 0.05).rounded() * 0.05))
         UserDefaults.standard.set(pageZoom, forKey: "pageZoom")
-        dispatcher.webView?.pageZoom = CGFloat(pageZoom)
+        for webView in webViews.allObjects {
+            webView.pageZoom = CGFloat(pageZoom)
+        }
     }
 
     /// Writes the page's structure at three window widths to dom-survey-<view>.json in the app's
     /// support folder. A debug aid for layout work; the window is restored to its size afterwards.
     func exportSurvey() {
         Task {
-            guard let webView = dispatcher.webView, let window = webView.window else { return }
+            guard let webView = mailWebView, let window = webView.window else { return }
             let original = window.frame
             var widths: [String] = []
             var view = "other"
@@ -176,7 +223,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
             let domain = ServerConfig.registrableDomain(of: serverHost)
             if host == domain || host.hasSuffix("." + domain) { return true }
         }
-        return microsoftDomains.contains { host == $0 || host.hasSuffix("." + $0) }
+        return ServerConfig.isMicrosoftHosted(host)
     }
 
     private func openExternally(_ url: URL) {

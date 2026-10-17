@@ -76,6 +76,17 @@ struct AppCommands: Commands {
             item("Reload", .refresh, "r", [.command, .option])
         }
 
+        CommandGroup(after: .windowArrangement) {
+            Button("Calendar Window") {
+                SecondaryWindows.show(.calendar)
+            }
+            .keyboardShortcut("2", modifiers: [.command, .option])
+            Button("People Window") {
+                SecondaryWindows.show(.people)
+            }
+            .keyboardShortcut("3", modifiers: [.command, .option])
+        }
+
         CommandGroup(after: .help) {
             Button("Export Page Survey") {
                 WebViewStore.shared.exportSurvey()
@@ -90,7 +101,7 @@ struct AppCommands: Commands {
         _ modifiers: EventModifiers = .command
     ) -> some View {
         Button(title) {
-            WebViewStore.shared.dispatcher.run(command)
+            WebViewStore.shared.run(command)
         }
         .keyboardShortcut(key, modifiers: modifiers)
     }

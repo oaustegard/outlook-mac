@@ -16,6 +16,31 @@ enum ServerConfig {
         UserDefaults.standard.set(url.absoluteString, forKey: defaultsKey)
     }
 
+    /// Microsoft's own domains. Their sign-in and OWA pages stay in the web view.
+    static let microsoftDomains = [
+        "office.com",
+        "office365.com",
+        "outlook.com",
+        "live.com",
+        "microsoftonline.com",
+        "microsoft.com",
+        "msauth.net",
+        "msftauth.net",
+        "windows.net",
+    ]
+
+    static func isMicrosoftHosted(_ host: String) -> Bool {
+        microsoftDomains.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// The scheme, host and port of a URL, in the form the bridge compares with the page's origin.
+    static func origin(of url: URL) -> String? {
+        guard let scheme = url.scheme, let host = url.host else { return nil }
+        var origin = "\(scheme)://\(host.lowercased())"
+        if let port = url.port { origin += ":\(port)" }
+        return origin
+    }
+
     /// Accepts only an https URL with a host name.
     static func validate(_ input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
