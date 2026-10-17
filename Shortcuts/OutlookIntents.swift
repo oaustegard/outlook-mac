@@ -56,7 +56,7 @@ struct GetUnreadCountIntent: AppIntent {
 
 struct GetRecentMessagesIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Recent Messages"
-    static let description = IntentDescription("Returns the newest messages in a folder, metadata only.")
+    static let description = IntentDescription("Returns the newest messages in a folder from the latest 200, metadata only.")
 
     @Parameter(title: "Folder", default: "Inbox")
     var folder: String
@@ -137,9 +137,9 @@ struct OpenMessageIntent: AppIntent {
 
 struct FindMessagesIntent: AppIntent {
     static let title: LocalizedStringResource = "Find Messages"
-    static let description = IntentDescription("Finds messages by text, sender, subject, date, read state or attachments.")
+    static let description = IntentDescription("Finds messages among the newest 200 in the folder, by sender, subject, date, read state or attachments.")
 
-    @Parameter(title: "Query", description: "Text to find anywhere in the message.")
+    @Parameter(title: "Query", description: "Text to find in the sender name, sender email or subject.")
     var query: String?
 
     @Parameter(title: "From Contains")
