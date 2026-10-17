@@ -146,13 +146,13 @@
   }
 
   window.__omac = {
+    // Returns a plain boolean at once: evaluateJavaScript cannot convert a Promise, so the real
+    // result goes back through the message handler when the command finishes.
     run: function (cmd) {
-      return runCommand(cmd)
+      runCommand(cmd)
         .catch(() => false)
-        .then(ok => {
-          report(cmd, ok);
-          return ok;
-        });
+        .then(ok => report(cmd, ok));
+      return true;
     }
   };
 })();
