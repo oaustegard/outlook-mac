@@ -12,6 +12,10 @@ struct OutlookWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.pageZoom = CGFloat(store.pageZoom)
+        // Lets Safari's Web Inspector (Develop menu) attach to the page.
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
         // Shows behind the page while it loads or overscrolls. Set to the page's own colour once the
         // DOM survey has it.
         webView.underPageBackgroundColor = .windowBackgroundColor
