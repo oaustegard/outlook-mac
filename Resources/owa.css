@@ -36,7 +36,7 @@
 /* Survey: every view reports font.size 16px on body. Bring it to the macOS 13px default. */
 body, [role] {
   font-size: var(--omac-font) !important;
-  line-height: 1.35;
+  line-height: 1.35 !important;
 }
 
 /* Survey: body has inline min-width 990px at every width. At the 900px window (1000 CSS px at
@@ -70,7 +70,7 @@ html, body {
   padding-bottom: 0 !important;
   margin: 1px 0 !important;
   border-radius: 6px !important;
-  color: var(--omac-text);
+  color: var(--omac-text) !important;
 }
 [role="treeitem"]:hover {
   background: var(--omac-hover) !important;
@@ -106,7 +106,7 @@ html, body {
   min-height: 0 !important;
   padding-top: 2px !important;
   padding-bottom: 2px !important;
-  border-bottom: 1px solid var(--omac-separator);
+  border-bottom: 1px solid var(--omac-separator) !important;
 }
 [role="toolbar"] [role="button"], [role="toolbar"] button, [role="menubar"] [role="menuitem"] {
   min-height: 24px !important;
@@ -130,20 +130,20 @@ html, body {
   border-radius: 10px !important;
 }
 [role="menu"] {
-  border-radius: 8px;
+  border-radius: 8px !important;
 }
 
 /* ---- Focus ------------------------------------------------------------------------------ */
 :focus-visible {
   outline: 2px solid var(--omac-accent) !important;
-  outline-offset: -2px;
+  outline-offset: -2px !important;
 }
 
 /* ---- Dark mode surfaces ----------------------------------------------------------------- */
 @media (prefers-color-scheme: dark) {
   /* Survey: #primaryContainer spans the whole viewport below body in every view. */
-  #primaryContainer { color-scheme: dark; }
-  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .25); }
+  #primaryContainer { color-scheme: dark !important; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .25) !important; }
 }
 
 /* ---- Responsive -------------------------------------------------------------------------- */

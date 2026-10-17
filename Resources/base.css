@@ -2,10 +2,10 @@
 
 html, body, button, input, textarea, [role] {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif !important;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased !important;
 }
 
-::-webkit-scrollbar { width: 8px; height: 8px }
-::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25); border-radius: 4px }
+::-webkit-scrollbar { width: 8px !important; height: 8px !important }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,.25) !important; border-radius: 4px !important }
 
 [role="option"], [role="treeitem"] { min-height: 0 !important; }

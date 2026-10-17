@@ -43,9 +43,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     }
 
     private static func loadThemeScript() -> WKUserScript? {
-        guard let url = Bundle.main.url(forResource: "theme", withExtension: "css"),
-              let css = try? String(contentsOf: url, encoding: .utf8)
-        else { return nil }
+        guard let css = loadStylesheet("theme") else { return nil }
         return WKUserScript(
             source: InjectedScript.style(id: "omac-theme", css: css),
             injectionTime: .atDocumentStart,
@@ -53,17 +51,32 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         )
     }
 
+    private static let cssLog = Logger(subsystem: "com.oaustegard.outlook-mac", category: "css")
+
+    /// Reads a bundled stylesheet, logging its size, or an error if it is missing or unreadable.
+    /// A missing file usually means the Xcode project predates it: re-run xcodegen.
+    private static func loadStylesheet(_ name: String) -> String? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "css") else {
+            cssLog.error("\(name, privacy: .public).css is missing from the app bundle; re-run xcodegen and rebuild")
+            return nil
+        }
+        guard let css = try? String(contentsOf: url, encoding: .utf8) else {
+            cssLog.error("\(name, privacy: .public).css could not be read at \(url.path, privacy: .public)")
+            return nil
+        }
+        cssLog.info("Loaded \(name, privacy: .public).css: \(css.utf8.count) bytes")
+        return css
+    }
+
     // Nil if base.css is missing from the bundle; the page then keeps its own styling.
     let baseScript = WebViewStore.loadBaseScript()
 
     private static func loadBaseScript() -> WKUserScript? {
-        guard let url = Bundle.main.url(forResource: "base", withExtension: "css"),
-              let css = try? String(contentsOf: url, encoding: .utf8)
-        else { return nil }
+        guard let css = loadStylesheet("base") else { return nil }
         // Goes before the user's stylesheet in the page, so a rule in user.css overrides it.
         return WKUserScript(
             source: InjectedScript.style(id: "omac-base", css: css, first: true),
-            injectionTime: .atDocumentEnd,
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         )
     }
@@ -72,14 +85,12 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     let owaScript = WebViewStore.loadOWAScript()
 
     private static func loadOWAScript() -> WKUserScript? {
-        guard let url = Bundle.main.url(forResource: "owa", withExtension: "css"),
-              let css = try? String(contentsOf: url, encoding: .utf8)
-        else { return nil }
+        guard let css = loadStylesheet("owa") else { return nil }
         // Also inserted first in the page. It is added to the controller before baseScript, so
         // base.css is then inserted ahead of it: base.css, owa.css, page styles, user.css.
         return WKUserScript(
             source: InjectedScript.style(id: "omac-owa", css: css, first: true),
-            injectionTime: .atDocumentEnd,
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         )
     }
