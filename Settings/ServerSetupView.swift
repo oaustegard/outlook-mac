@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ServerSetupView: View {
     @Binding var isPresented: Bool
-    @State private var address = ServerConfig.serverURL?.absoluteString ?? "https://"
+    @State private var address = ServerConfig.serverURL?.absoluteString ?? "https://webmail.meso-scale.com/"
     @State private var errorText: String?
 
     var body: some View {
