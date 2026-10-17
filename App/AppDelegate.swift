@@ -12,6 +12,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AutomationMonitor.shared.start()
     }
 
+    // Clicking the Dock icon with every window closed brings the main window back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { WebViewStore.shared.reopenMainWindowIfNeeded() }
+        return true
+    }
+
     // Cookies are read asynchronously, so quitting waits for the save before it replies.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in

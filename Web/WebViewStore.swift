@@ -81,7 +81,11 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
 
     /// Restores saved cookies, then loads the server. Runs once, when the web view is created.
     func startSession() {
-        guard !sessionStarted else { return }
+        // A window reopened after it was closed gets a new web view, which still needs the page.
+        guard !sessionStarted else {
+            loadServer()
+            return
+        }
         sessionStarted = true
         userStyles.onChange = { [weak self] in self?.reloadUserStyles() }
         userStyles.startWatching()
@@ -104,6 +108,17 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
             await CookiePersistence.signOut()
             dispatcher.webView?.reload()
         }
+    }
+
+    /// Opens the main window when there is no web view. RootView sets this, since only a view can
+    /// open a window by its scene ID.
+    var openMainWindow: (() -> Void)?
+
+    /// Opens the main window if it was closed, so Shortcuts and reopened apps get a page to use.
+    func reopenMainWindowIfNeeded() {
+        guard dispatcher.webView == nil else { return }
+        NSApplication.shared.activate()
+        openMainWindow?()
     }
 
     /// Loads the configured server, if one has been set up.

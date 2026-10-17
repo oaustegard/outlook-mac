@@ -11,7 +11,8 @@ enum OWAService {
     private static let scanSize = 200
 
     /// Shortcuts gives an intent a short time to answer, so waits stay well under it.
-    private static let pageWait: Duration = .seconds(5)
+    private static let pageWait: Duration = .seconds(10)
+    private static let windowWait: Duration = .seconds(10)
     private static let log = Logger(subsystem: "com.oaustegard.outlook-mac", category: "shortcuts")
 
     /// Runs one service.svc action and returns the reply's Body.
@@ -184,7 +185,9 @@ enum OWAService {
 
     /// The web view once the app has created it. Waits up to 15 seconds for a window that is still opening.
     static func waitForWebView() async throws -> WKWebView {
-        let deadline = ContinuousClock.now + pageWait
+        // A closed window has no web view, so reopen it first. Then wait for the new view to appear.
+        WebViewStore.shared.reopenMainWindowIfNeeded()
+        let deadline = ContinuousClock.now + windowWait
         while ContinuousClock.now < deadline {
             if let webView = WebViewStore.shared.dispatcher.webView { return webView }
             try await Task.sleep(for: .milliseconds(250))
