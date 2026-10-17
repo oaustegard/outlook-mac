@@ -9,6 +9,12 @@ struct AppCommands: Commands {
             .keyboardShortcut("n", modifiers: .command)
         }
 
+        CommandGroup(after: .appInfo) {
+            Button("Change Server…") {
+                NotificationCenter.default.post(name: .showServerSetup, object: nil)
+            }
+        }
+
         CommandGroup(after: .textEditing) {
             Button("Search") {
                 WebViewStore.shared.dispatcher.run(.search)

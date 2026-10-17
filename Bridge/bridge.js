@@ -27,6 +27,13 @@
     return true;
   }
 
+  // On-premises OWA lives under /owa/ and routes by hash; outlook.com uses plain paths.
+  function go(owaTarget, plainTarget) {
+    const onOwa = location.pathname.indexOf('/owa') !== -1;
+    location.assign(location.origin + (onOwa ? owaTarget : plainTarget));
+    return true;
+  }
+
   const commands = {
     newMail: function () {
       return keyPress('n', 'KeyN');
@@ -35,16 +42,13 @@
       return focusSearch() || keyPress('/', 'Slash');
     },
     gotoInbox: function () {
-      location.assign(location.origin + '/mail/inbox');
-      return true;
+      return go('/owa/#path=/mail', '/mail/inbox');
     },
     gotoCalendar: function () {
-      location.assign(location.origin + '/calendar');
-      return true;
+      return go('/owa/#path=/calendar', '/calendar');
     },
     gotoPeople: function () {
-      location.assign(location.origin + '/people');
-      return true;
+      return go('/owa/#path=/people', '/people');
     },
     refresh: function () {
       location.reload();

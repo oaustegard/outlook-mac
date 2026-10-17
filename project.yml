@@ -11,6 +11,7 @@ targets:
       - App
       - Web
       - Menus
+      - Settings
       - path: Bridge
         excludes:
           - bridge.js
