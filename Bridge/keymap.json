@@ -13,7 +13,11 @@
   "gotoCalendar": { "view": "calendar", "keys": [] },
   "gotoPeople": { "view": "people", "keys": [] },
   "gotoTasks": { "view": "tasks", "keys": [] },
-  "newEvent": { "view": "calendar", "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }] },
+  "newEvent": {
+    "view": "calendar",
+    "keys": [{ "key": "n", "code": "KeyN", "ctrlKey": true }],
+    "selector": "button[aria-label^=\"New event\"]"
+  },
   "calToday": {
     "view": "calendar",
     "keys": [{ "key": "t", "code": "KeyT", "altKey": true }],
