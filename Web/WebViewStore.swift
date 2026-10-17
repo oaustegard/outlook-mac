@@ -1,11 +1,14 @@
 import AppKit
+import OSLog
 import WebKit
 
 @MainActor
-final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate {
+final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
     static let shared = WebViewStore()
 
     let dispatcher = CommandDispatcher()
+    private let nav = Logger(subsystem: "com.oaustegard.outlook-mac", category: "nav")
+    private var popupWindows: [NSWindow] = []
 
     // Nil if bridge.js is missing from the bundle; the menu commands then do nothing.
     let bridgeScript = WebViewStore.loadBridgeScript()
@@ -66,37 +69,100 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url,
-              url.scheme == "http" || url.scheme == "https" || url.scheme == "mailto"
-        else {
+        guard let url = navigationAction.request.url else {
+            logNavigation(nil, navigationAction, decision: "allow")
             decisionHandler(.allow)
             return
         }
 
-        if staysInApp(url) {
-            decisionHandler(.allow)
-        } else {
+        // Only a user's click on a main-frame link leaves the web view. Redirects, form posts,
+        // script navigations and subframes stay put, so sign-in round trips (for example 2FA) survive.
+        let leaves = navigationAction.navigationType == .linkActivated
+            && (navigationAction.targetFrame?.isMainFrame ?? true)
+            && isExternal(url)
+        logNavigation(url, navigationAction, decision: leaves ? "external" : "allow")
+        if leaves {
             openExternally(url)
             decisionHandler(.cancel)
+        } else {
+            decisionHandler(.allow)
         }
     }
 
-    // Links that ask for a new window (target=_blank) follow the same rule:
-    // in-app hosts load in the existing view, everything else opens in the browser.
+    // mailto links and web links outside the in-app domains open in the browser.
+    private func isExternal(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "mailto": return true
+        case "http", "https": return !staysInApp(url)
+        default: return false
+        }
+    }
+
+    private func logNavigation(_ url: URL?, _ action: WKNavigationAction, decision: String) {
+        // Scheme, host and path only: queries can carry tokens.
+        var target = url?.scheme ?? "none"
+        if let host = url?.host {
+            target += "://\(host)\(url?.path ?? "")"
+        }
+        nav.info("\(decision, privacy: .public) type=\(action.navigationType.rawValue) main=\(action.targetFrame?.isMainFrame ?? true) url=\(target, privacy: .public)")
+    }
+
+    // Popups (target=_blank, window.open). A user's click on an external link goes to the browser.
+    // Anything else, including sign-in popups, gets a child web view on the passed-in configuration,
+    // so window.opener and postMessage keep working.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url {
-            if staysInApp(url) {
-                webView.load(navigationAction.request)
-            } else {
-                openExternally(url)
-            }
+        if navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url,
+           isExternal(url) {
+            logNavigation(url, navigationAction, decision: "popup-external")
+            openExternally(url)
+            return nil
         }
-        return nil
+
+        logNavigation(navigationAction.request.url, navigationAction, decision: "popup-child")
+        let popup = WKWebView(frame: .zero, configuration: configuration)
+        popup.navigationDelegate = self
+        popup.uiDelegate = self
+        showPopup(popup)
+        return popup
+    }
+
+    private func showPopup(_ popup: WKWebView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 680),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Outlook"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        if let content = window.contentView {
+            popup.frame = content.bounds
+            popup.autoresizingMask = [.width, .height]
+            content.addSubview(popup)
+        }
+        popupWindows.append(window)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        nav.info("popup-close")
+        let window = popupWindows.first { window in
+            window.contentView?.subviews.contains { $0 === webView } == true
+        }
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        popupWindows.removeAll { $0 === window }
     }
 
     func webView(
