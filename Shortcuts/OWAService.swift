@@ -153,7 +153,7 @@ enum OWAService {
     /// so it stays out of the server's access logs. The message is never sent.
     static func compose(to: String, cc: String?, subject: String, body: String) async throws {
         guard let server = ServerConfig.serverURL, let origin = originString(server),
-              let url = URL(string: origin + "/owa/?ae=Item&a=New")
+              let url = URL(string: origin + "/owa/#path=/mail/action/compose")
         else { throw OWAError.notConfigured }
         let webView = try await waitForWebView()
         webView.load(URLRequest(url: url))
@@ -165,7 +165,11 @@ enum OWAService {
             in: nil,
             contentWorld: .page
         )
-        guard (raw as? [String: Any])?["filled"] as? Bool == true else { throw OWAError.composeNotFilled }
+        let result = raw as? [String: Any]
+        if result?["filled"] as? Bool != true {
+            // Control roles and labels only, so the log shows the page's structure, never what was typed.
+            throw OWAError.composeNotFilled((result?["labels"] as? String) ?? "none")
+        }
     }
 
     private static func load(_ path: String) async throws {
@@ -307,12 +311,19 @@ enum OWAService {
     let toField = null, subjectField = null, bodyField = null;
     while (Date.now() < deadline) {
       toField = find(['To']);
-      subjectField = find(['Add a subject', 'Subject']);
+      subjectField = find(['Subject,', 'Add a subject', 'Subject']);
       bodyField = find(['Message body']);
       if (toField && subjectField && bodyField) { break; }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    if (!toField || !subjectField || !bodyField) { return { filled: false }; }
+    if (!toField || !subjectField || !bodyField) {
+      const labels = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"], [role="combobox"], button'))
+        .filter((el) => el.getClientRects().length > 0)
+        .slice(0, 60)
+        .map((el) => [el.tagName.toLowerCase(), el.getAttribute('role') || '', (el.getAttribute('aria-label') || '').slice(0, 40)].join('|'))
+        .join('; ');
+      return { filled: false, labels: labels };
+    }
     setInput(toField, to);
     if (cc) {
       const ccField = find(['Cc']);

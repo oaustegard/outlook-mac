@@ -328,7 +328,7 @@ enum OWAError: LocalizedError {
     case signedOut
     case notConfigured
     case badReply
-    case composeNotFilled
+    case composeNotFilled(String)
     case noSuchFolder(String)
     case noMeeting(Int)
     case server(String)
@@ -343,8 +343,8 @@ enum OWAError: LocalizedError {
             "No Exchange server is set up in Outlook."
         case .badReply:
             "Outlook returned a reply that could not be read."
-        case .composeNotFilled:
-            "Opened a blank message, but Outlook's compose fields were not found, so nothing was filled in."
+        case .composeNotFilled(let labels):
+            "Opened a blank message, but Outlook's compose fields were not found, so nothing was filled in. Controls on the page: \(labels)"
         case .noSuchFolder(let name):
             "There is no folder named \(name)."
         case .noMeeting(let hours):
