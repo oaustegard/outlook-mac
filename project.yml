@@ -12,6 +12,8 @@ targets:
       - Web
       - Menus
       - Settings
+      - Shortcuts
+      - Automations
       - path: Bridge
         excludes:
           - bridge.js

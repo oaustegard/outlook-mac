@@ -11,5 +11,9 @@ struct OutlookApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands { AppCommands() }
+
+        Settings {
+            AutomationsSettingsView()
+        }
     }
 }

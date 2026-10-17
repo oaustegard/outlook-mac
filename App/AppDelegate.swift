@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.windows.forEach { $0.tabbingMode = .disallowed }
+        AutomationMonitor.shared.start()
     }
 
     // Cookies are read asynchronously, so quitting waits for the save before it replies.
