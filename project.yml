@@ -16,16 +16,9 @@ targets:
         excludes:
           - bridge.js
           - keymap.json
-          - theme.css
       - path: Bridge/bridge.js
         buildPhase: resources
       - path: Bridge/keymap.json
-        buildPhase: resources
-      - path: Bridge/theme.css
-        buildPhase: resources
-      - path: Resources/base.css
-        buildPhase: resources
-      - path: Resources/owa.css
         buildPhase: resources
     settings:
       base:

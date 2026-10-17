@@ -15,9 +15,6 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
 
     // Nil if bridge.js or keymap.json is missing from the bundle; the menu commands then do nothing.
     let bridgeScript = WebViewStore.loadBridgeScript()
-    // Nil if theme.css is missing from the bundle; the page then keeps its own fonts.
-    let themeScript = WebViewStore.loadThemeScript()
-
     // Page zoom, persisted across launches. 0.9 is the default.
     private(set) var pageZoom: Double = UserDefaults.standard.object(forKey: "pageZoom") as? Double ?? 0.9
 
@@ -42,68 +39,11 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
         return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
     }
 
-    private static func loadThemeScript() -> WKUserScript? {
-        guard let css = loadStylesheet("theme") else { return nil }
-        return WKUserScript(
-            source: InjectedScript.style(id: "omac-theme", css: css),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
-    }
-
-    private static let cssLog = Logger(subsystem: "com.oaustegard.outlook-mac", category: "css")
-
-    /// Reads a bundled stylesheet, logging its size, or an error if it is missing or unreadable.
-    /// A missing file usually means the Xcode project predates it: re-run xcodegen.
-    private static func loadStylesheet(_ name: String) -> String? {
-        guard let url = Bundle.main.url(forResource: name, withExtension: "css") else {
-            cssLog.error("\(name, privacy: .public).css is missing from the app bundle; re-run xcodegen and rebuild")
-            return nil
-        }
-        guard let css = try? String(contentsOf: url, encoding: .utf8) else {
-            cssLog.error("\(name, privacy: .public).css could not be read at \(url.path, privacy: .public)")
-            return nil
-        }
-        cssLog.info("Loaded \(name, privacy: .public).css: \(css.utf8.count) bytes")
-        return css
-    }
-
-    // Nil if base.css is missing from the bundle; the page then keeps its own styling.
-    let baseScript = WebViewStore.loadBaseScript()
-
-    private static func loadBaseScript() -> WKUserScript? {
-        guard let css = loadStylesheet("base") else { return nil }
-        // Goes before the user's stylesheet in the page, so a rule in user.css overrides it.
-        return WKUserScript(
-            source: InjectedScript.style(id: "omac-base", css: css, first: true),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
-    }
-
-    // Nil if owa.css is missing from the bundle; the page then keeps OWA's own density and layout.
-    let owaScript = WebViewStore.loadOWAScript()
-
-    private static func loadOWAScript() -> WKUserScript? {
-        guard let css = loadStylesheet("owa") else { return nil }
-        // Also inserted first in the page. It is added to the controller before baseScript, so
-        // base.css is then inserted ahead of it: base.css, owa.css, page styles, user.css.
-        return WKUserScript(
-            source: InjectedScript.style(id: "omac-owa", css: css, first: true),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
-    }
-
-    /// Replaces the page's user scripts: the server origin, the bridge, the theme, the base
-    /// and OWA stylesheets, and the user's stylesheet.
+    /// Replaces the page's user scripts: the server origin, the bridge, and the user's stylesheet.
     func installUserScripts(on controller: WKUserContentController) {
         controller.removeAllUserScripts()
         if let originScript = serverOriginScript() { controller.addUserScript(originScript) }
         if let bridgeScript { controller.addUserScript(bridgeScript) }
-        if let themeScript { controller.addUserScript(themeScript) }
-        if let owaScript { controller.addUserScript(owaScript) }
-        if let baseScript { controller.addUserScript(baseScript) }
         controller.addUserScript(userStyles.documentStartScript())
     }
 
@@ -184,7 +124,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
 
     func zoomIn() { setZoom(pageZoom + 0.05) }
     func zoomOut() { setZoom(pageZoom - 0.05) }
-    func actualSize() { setZoom(1.0) }
+    func actualSize() { setZoom(0.9) }
 
     private func setZoom(_ value: Double) {
         pageZoom = min(3.0, max(0.5, (value / 0.05).rounded() * 0.05))
