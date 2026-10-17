@@ -12,10 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AutomationMonitor.shared.start()
     }
 
-    // Clicking the Dock icon with every window closed brings the main window back.
+    // Clicking the Dock icon with every window closed brings the main window back. Returning true
+    // would let SwiftUI open one more, so it is left to SwiftUI only when the store cannot.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { WebViewStore.shared.reopenMainWindowIfNeeded() }
-        return true
+        if flag { return true }
+        return !WebViewStore.shared.reopenMainWindowIfNeeded()
     }
 
     // Cookies are read asynchronously, so quitting waits for the save before it replies.

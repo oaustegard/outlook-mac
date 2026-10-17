@@ -102,20 +102,21 @@ enum OWARequest {
             "FolderShape": [
                 "__type": "FolderResponseShape:#Exchange",
                 "BaseShape": "IdOnly",
-                "AdditionalProperties": [property("DisplayName"), property("UnreadCount")],
+                "AdditionalProperties": [property("FolderDisplayName"), property("UnreadCount")],
             ],
             "FolderIds": [folder.json],
         ]
     }
 
     /// Every folder under the mailbox root, so a folder can be found by its display name.
+    /// OWA calls the folder's name FolderDisplayName; it silently ignores a plain DisplayName.
     static func findFolders() -> [String: Any] {
         [
             "__type": "FindFolderRequest:#Exchange",
             "FolderShape": [
                 "__type": "FolderResponseShape:#Exchange",
                 "BaseShape": "IdOnly",
-                "AdditionalProperties": [property("DisplayName"), property("UnreadCount")],
+                "AdditionalProperties": [property("FolderDisplayName"), property("UnreadCount"), property("ParentFolderId")],
             ],
             "ParentFolderIds": [distinguished("msgfolderroot")],
             "Traversal": "Deep",
@@ -195,6 +196,37 @@ struct FolderRecord: Sendable {
     let id: String
     let name: String
     let unreadCount: Int
+    var parentID: String? = nil
+}
+
+extension Array where Element == FolderRecord {
+    /// The folder a name refers to. "Inbox/PRs" names a folder by its path; a bare name that
+    /// several folders share (such as an Inbox inside Archive) means the one nearest the top.
+    func named(_ name: String) -> FolderRecord? {
+        let byID = Dictionary(map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func ancestors(_ folder: FolderRecord) -> [String] {
+            var names: [String] = []
+            var parent = folder.parentID.flatMap { byID[$0] }
+            while let current = parent, names.count < 50 {
+                names.insert(current.name, at: 0)
+                parent = current.parentID.flatMap { byID[$0] }
+            }
+            return names
+        }
+        let path = name.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let leaf = path.last else { return nil }
+        let same = { (a: String, b: String) in a.caseInsensitiveCompare(b) == .orderedSame }
+        return filter { same($0.name, leaf) }
+            .map { (folder: $0, ancestors: ancestors($0)) }
+            .filter { candidate in
+                // Each named parent must be one of the folder's ancestors, nearest last.
+                let parents = path.dropLast()
+                return parents.count <= candidate.ancestors.count
+                    && zip(parents.reversed(), candidate.ancestors.reversed()).allSatisfy(same)
+            }
+            .min { $0.ancestors.count < $1.ancestors.count }?
+            .folder
+    }
 }
 
 enum OWAParse {
@@ -237,7 +269,8 @@ enum OWAParse {
             return FolderRecord(
                 id: id,
                 name: folder["DisplayName"] as? String ?? "",
-                unreadCount: folder["UnreadCount"] as? Int ?? 0
+                unreadCount: folder["UnreadCount"] as? Int ?? 0,
+                parentID: (folder["ParentFolderId"] as? [String: Any])?["Id"] as? String
             )
         }
     }
@@ -329,6 +362,7 @@ enum OWAError: LocalizedError {
     case notConfigured
     case badReply
     case composeNotFilled(String)
+    case noSearchBox
     case noSuchFolder(String)
     case noMeeting(Int)
     case server(String)
@@ -345,6 +379,8 @@ enum OWAError: LocalizedError {
             "Outlook returned a reply that could not be read."
         case .composeNotFilled(let labels):
             "Opened a blank message, but Outlook's compose fields were not found, so nothing was filled in. Controls on the page: \(labels)"
+        case .noSearchBox:
+            "Outlook's search box was not found, so nothing was searched."
         case .noSuchFolder(let name):
             "There is no folder named \(name)."
         case .noMeeting(let hours):

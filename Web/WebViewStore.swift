@@ -81,6 +81,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
 
     /// Restores saved cookies, then loads the server. Runs once, when the web view is created.
     func startSession() {
+        windowRequested = false
         // A window reopened after it was closed gets a new web view, which still needs the page.
         guard !sessionStarted else {
             loadServer()
@@ -114,11 +115,25 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     /// open a window by its scene ID.
     var openMainWindow: (() -> Void)?
 
+    // True from asking for a window until its web view exists, so a second request in that gap
+    // (a Dock reopen and a Shortcuts action arrive together) does not open a second window.
+    private var windowRequested = false
+
     /// Opens the main window if it was closed, so Shortcuts and reopened apps get a page to use.
-    func reopenMainWindowIfNeeded() {
-        guard dispatcher.webView == nil else { return }
+    /// Returns false when it cannot, because no main window has registered how to open one.
+    @discardableResult
+    func reopenMainWindowIfNeeded() -> Bool {
+        guard dispatcher.webView == nil, !windowRequested else { return true }
+        guard let openMainWindow else { return false }
+        windowRequested = true
         NSApplication.shared.activate()
-        openMainWindow?()
+        openMainWindow()
+        // If no window came of it, a later request may try again.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            self?.windowRequested = false
+        }
+        return true
     }
 
     /// Loads the configured server, if one has been set up.

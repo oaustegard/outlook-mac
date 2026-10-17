@@ -66,9 +66,7 @@ enum OWAService {
         if let known = OWARequest.distinguishedFolders[trimmed.lowercased()] { return known }
         if trimmed.isEmpty { return FolderRef(id: "inbox", distinguished: true) }
         let reply = try await send("FindFolder", body: OWARequest.findFolders())
-        let match = try OWAParse.folders(reply).first {
-            $0.name.caseInsensitiveCompare(trimmed) == .orderedSame
-        }
+        let match = try OWAParse.folders(reply).named(trimmed)
         guard let match else { throw OWAError.noSuchFolder(trimmed) }
         return FolderRef(id: match.id, distinguished: false)
     }
@@ -126,38 +124,44 @@ enum OWAService {
 
     /// Puts the query in Outlook's search box and runs it.
     static func search(_ query: String) async throws {
-        _ = try await waitForWebView()
-        WebViewStore.shared.search(query)
+        // Waits for the page, which a window reopened for this shortcut is still loading.
+        let webView = try await readyWebView()
+        let found = try await webView.callAsyncJavaScript(
+            "return window.__omac ? await window.__omac.searchFor(query) : false",
+            arguments: ["query": query],
+            in: nil,
+            contentWorld: .page
+        )
+        if found as? Bool != true { throw OWAError.noSearchBox }
     }
 
     static func openView(_ view: OutlookView, folder name: String?) async throws {
         let path: String
         switch view {
         case .mail:
-            path = "/owa/#path=/mail"
+            // The Inbox, since a bare mail route leaves Outlook in whichever folder was last open.
+            path = "/owa/#path=/mail/inbox"
         case .calendar:
             path = "/owa/#path=/calendar"
         case .people:
             path = "/owa/#path=/people"
         case .folder:
             let ref = try await folder(named: name ?? "")
-            path = ref.distinguished ? "/owa/#path=/mail/\(ref.id)" : "/owa/#path=/mail/folder/\(encoded(ref.id))"
+            path = "/owa/#path=/mail/\(ref.distinguished ? ref.id : encoded(ref.id))"
         }
         try await load(path)
     }
 
     static func openMessage(id: String) async throws {
-        try await load("/owa/#ItemID=\(encoded(id))&exvsurl=1&viewmodel=ReadMessageItem")
+        // OWA's own permalink. It opens the message by itself; its Close button returns to the mailbox.
+        try await load("/owa/?ItemID=\(encoded(id))&exvsurl=1&viewmodel=ReadMessageItem")
     }
 
-    /// Opens a new message and fills its fields through the page. The text never goes into the URL,
-    /// so it stays out of the server's access logs. The message is never sent.
+    /// Opens a new message in the reading pane and fills its fields through the page. The text never
+    /// goes into the URL, so it stays out of the server's access logs. The message is never sent.
+    /// The compose route is not used: on-premises OWA opens it in a separate popup window.
     static func compose(to: String, cc: String?, subject: String, body: String) async throws {
-        guard let server = ServerConfig.serverURL, let origin = originString(server),
-              let url = URL(string: origin + "/owa/#path=/mail/action/compose")
-        else { throw OWAError.notConfigured }
-        let webView = try await waitForWebView()
-        webView.load(URLRequest(url: url))
+        let webView = try await load("/owa/#path=/mail/inbox")
         try await waitUntilLoaded(webView)
 
         let raw = try await webView.callAsyncJavaScript(
@@ -173,12 +177,19 @@ enum OWAService {
         }
     }
 
-    private static func load(_ path: String) async throws {
+    /// Loads a path on the server. Outlook ignores a route change to Mail while its search results
+    /// are open, so search is closed first.
+    @discardableResult
+    private static func load(_ path: String) async throws -> WKWebView {
         guard let server = ServerConfig.serverURL, let origin = originString(server),
               let url = URL(string: origin + path)
         else { throw OWAError.notConfigured }
         let webView = try await waitForWebView()
+        if (try? await webView.evaluateJavaScript(exitSearchScript)) as? Bool == true {
+            try await Task.sleep(for: .milliseconds(300))
+        }
         webView.load(URLRequest(url: url))
+        return webView
     }
 
     // MARK: Page state
@@ -286,10 +297,28 @@ enum OWAService {
     return { status: response.status, json: type.indexOf('json') !== -1, text: await response.text() };
     """#
 
-    /// Fills a blank compose window. Arguments are to, cc, subject and body. It waits up to 20 seconds
-    /// for the fields, then returns { filled }. It never clicks Send. The aria-labels are the ones
-    /// OWA's compose uses. Not yet confirmed live, because the headless harness renders no form controls.
+    /// Clicks Outlook's "Exit search" button if search results are showing. Returns whether it did.
+    private static let exitSearchScript = #"""
+    (() => {
+      const label = Array.from(document.querySelectorAll('[aria-label="Exit search"]')).find((el) => el.getClientRects().length > 0);
+      if (!label) { return false; }
+      (label.closest('button') || label).click();
+      return true;
+    })()
+    """#
+
+    /// Clicks New, then fills the blank message. Arguments are to, cc, subject and body. It waits up
+    /// to 20 seconds for the button and then the fields, and returns { filled }. It never clicks Send.
+    /// The title and aria-labels are the ones on-premises OWA uses.
     private static let composeScript = #"""
+    const visible = (selector) => Array.from(document.querySelectorAll(selector)).find((el) => el.getClientRects().length > 0) || null;
+    const started = Date.now();
+    let newButton = null;
+    while (!newButton && Date.now() - started < 20000) {
+      newButton = visible('button[title^="Write a new message" i], button[aria-label^="New message" i]');
+      if (!newButton) { await new Promise((resolve) => setTimeout(resolve, 250)); }
+    }
+    if (newButton) { newButton.click(); }
     const find = (labels) => {
       const controls = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"]'));
       for (const label of labels) {
@@ -310,7 +339,7 @@ enum OWAService {
       document.execCommand('insertText', false, value);
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    const deadline = Date.now() + 20000;
+    const deadline = started + 20000;
     let toField = null, subjectField = null, bodyField = null;
     while (Date.now() < deadline) {
       toField = find(['To']);
