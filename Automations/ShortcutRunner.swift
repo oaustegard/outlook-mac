@@ -45,6 +45,9 @@ enum ShortcutRunner {
         let process = Process()
         process.executableURL = executable
         process.arguments = ["run", name, "--input-path", file.path]
+        // `shortcuts run` waits on standard input when it is a terminal or a pipe, as it is when
+        // the app is started from Xcode or a terminal, and then never ends. An empty input lets it finish.
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { finished in

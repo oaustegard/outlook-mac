@@ -90,8 +90,12 @@ enum OWARequest {
         ["__type": "IndexedPageView:#Exchange", "BasePoint": "Beginning", "Offset": 0, "MaxEntriesReturned": limit]
     }
 
+    /// A request time in UTC with no zone suffix, which Exchange reads in the header's UTC time zone.
+    /// A time ending in Z comes out shifted by the mailbox's UTC offset, four hours early in New York.
     static func iso(_ date: Date) -> String {
-        ISO8601DateFormatter.withFraction.string(from: date)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        return formatter.string(from: date)
     }
 
     // MARK: Folders
