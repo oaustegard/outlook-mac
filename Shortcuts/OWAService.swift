@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import WebKit
 
 /// Calls Outlook Web's own service.svc from the signed-in page. The page's session cookies go
@@ -6,8 +7,17 @@ import WebKit
 /// else is needed, so no password or token ever leaves the web view.
 @MainActor
 enum OWAService {
+    /// How many of the newest messages a search reads before filtering. Keeps each call small.
+    private static let scanSize = 200
+
+    /// Shortcuts gives an intent a short time to answer, so waits stay well under it.
+    private static let pageWait: Duration = .seconds(10)
+    private static let windowWait: Duration = .seconds(10)
+    private static let log = Logger(subsystem: "com.oaustegard.outlook-mac", category: "shortcuts")
+
     /// Runs one service.svc action and returns the reply's Body.
     static func send(_ action: String, body: [String: Any]) async throws -> [String: Any] {
+        log.notice("service call \(action, privacy: .public) started")
         let webView = try await readyWebView()
         guard let server = ServerConfig.serverURL, let origin = originString(server) else {
             throw OWAError.notConfigured
@@ -32,7 +42,16 @@ enum OWAService {
         let isJSON = reply["json"] as? Bool ?? false
         // A sign-in page or a session timeout answers with HTML or 401/403/440, never JSON.
         if status == 401 || status == 403 || status == 440 || !isJSON { throw OWAError.signedOut }
-        guard (200..<300).contains(status) else { throw OWAError.server("HTTP \(status)") }
+        guard (200..<300).contains(status) else {
+            // The exception name says what the server objected to. The fault message can carry mail details, so it stays out.
+            let text = reply["text"] as? String ?? ""
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+            let fault = parsed["Body"] as? [String: Any] ?? parsed
+            let exception = fault["ExceptionName"] as? String ?? fault["ResponseCode"] as? String
+                ?? "none; top-level keys: \(parsed.keys.sorted().joined(separator: ","))"
+            log.error("service call \(action, privacy: .public) returned \(status, privacy: .public): \(exception, privacy: .public)")
+            throw OWAError.server("HTTP \(status) \(exception)")
+        }
         guard let text = reply["text"] as? String,
               let parsed = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
         else { throw OWAError.badReply }
@@ -47,9 +66,7 @@ enum OWAService {
         if let known = OWARequest.distinguishedFolders[trimmed.lowercased()] { return known }
         if trimmed.isEmpty { return FolderRef(id: "inbox", distinguished: true) }
         let reply = try await send("FindFolder", body: OWARequest.findFolders())
-        let match = try OWAParse.folders(reply).first {
-            $0.name.caseInsensitiveCompare(trimmed) == .orderedSame
-        }
+        let match = try OWAParse.folders(reply).named(trimmed)
         guard let match else { throw OWAError.noSuchFolder(trimmed) }
         return FolderRef(id: match.id, distinguished: false)
     }
@@ -64,27 +81,21 @@ enum OWAService {
 
     static func recentMessages(folder name: String, unreadOnly: Bool, limit: Int) async throws -> [MessageRecord] {
         let ref = try await folder(named: name)
+        let reply = try await send("FindItem", body: OWARequest.messageSearch(parents: [ref.json], limit: scanSize))
         var filter = MessageFilter()
         filter.unreadOnly = unreadOnly
-        filter.limit = clamp(limit, 1, 500)
-        let body = OWARequest.findMessages(filter, parents: [ref.json], deep: false)
-        return try OWAParse.messages(await send("FindItem", body: body))
+        return Array(try OWAParse.messages(reply).filter(filter.matches).prefix(clamp(limit, 1, 500)))
     }
 
     static func findMessages(_ filter: MessageFilter) async throws -> [MessageRecord] {
         let parents: [[String: Any]]
-        let deep: Bool
         if filter.folder.trimmingCharacters(in: .whitespaces).isEmpty || filter.folder == "All Mail" {
-            parents = [OWARequest.distinguished("msgfolderroot")]
-            deep = true
+            parents = OWARequest.allMailFolders.map { OWARequest.distinguished($0) }
         } else {
             parents = [try await folder(named: filter.folder).json]
-            deep = false
         }
-        var bounded = filter
-        bounded.limit = clamp(filter.limit, 1, 500)
-        let body = OWARequest.findMessages(bounded, parents: parents, deep: deep)
-        return try OWAParse.messages(await send("FindItem", body: body))
+        let reply = try await send("FindItem", body: OWARequest.messageSearch(parents: parents, limit: scanSize))
+        return Array(try OWAParse.messages(reply).filter(filter.matches).prefix(clamp(filter.limit, 1, 500)))
     }
 
     /// Message metadata for item ids that Shortcuts kept from an earlier run.
@@ -96,9 +107,11 @@ enum OWAService {
 
     // MARK: Calendar
 
+    /// Meetings overlapping the range, earliest first.
     static func meetings(from start: Date, to end: Date, limit: Int) async throws -> [MeetingRecord] {
-        let body = OWARequest.calendarView(from: start, to: end, limit: clamp(limit, 1, 500))
-        return try OWAParse.meetings(await send("FindItem", body: body))
+        let reply = try await send("GetCalendarView", body: OWARequest.getCalendarView(from: start, to: end))
+        let meetings = try OWAParse.meetings(reply).sorted { $0.start < $1.start }
+        return Array(meetings.prefix(clamp(limit, 1, 500)))
     }
 
     static func meetings(ids: [String]) async throws -> [MeetingRecord] {
@@ -111,77 +124,103 @@ enum OWAService {
 
     /// Puts the query in Outlook's search box and runs it.
     static func search(_ query: String) async throws {
-        _ = try await waitForWebView()
-        WebViewStore.shared.search(query)
+        // Waits for the page, which a window reopened for this shortcut is still loading.
+        let webView = try await readyWebView()
+        let found = try await webView.callAsyncJavaScript(
+            "return window.__omac ? await window.__omac.searchFor(query) : false",
+            arguments: ["query": query],
+            in: nil,
+            contentWorld: .page
+        )
+        if found as? Bool != true { throw OWAError.noSearchBox }
     }
 
     static func openView(_ view: OutlookView, folder name: String?) async throws {
         let path: String
         switch view {
         case .mail:
-            path = "/owa/#path=/mail"
+            // The Inbox, since a bare mail route leaves Outlook in whichever folder was last open.
+            path = "/owa/#path=/mail/inbox"
         case .calendar:
             path = "/owa/#path=/calendar"
         case .people:
             path = "/owa/#path=/people"
         case .folder:
             let ref = try await folder(named: name ?? "")
-            path = ref.distinguished ? "/owa/#path=/mail/\(ref.id)" : "/owa/#path=/mail/folder/\(encoded(ref.id))"
+            path = "/owa/#path=/mail/\(ref.distinguished ? ref.id : encoded(ref.id))"
         }
         try await load(path)
     }
 
     static func openMessage(id: String) async throws {
-        try await load("/owa/#ItemID=\(encoded(id))&exvsurl=1&viewmodel=ReadMessageItem")
+        // OWA's own permalink. It opens the message by itself; its Close button returns to the mailbox.
+        try await load("/owa/?ItemID=\(encoded(id))&exvsurl=1&viewmodel=ReadMessageItem")
     }
 
-    /// Opens a new message with the fields filled in. It is never sent: the user reviews and sends it.
+    /// Opens a new message in the reading pane and fills its fields through the page. The text never
+    /// goes into the URL, so it stays out of the server's access logs. The message is never sent.
+    /// The compose route is not used: on-premises OWA opens it in a separate popup window.
     static func compose(to: String, cc: String?, subject: String, body: String) async throws {
-        guard let server = ServerConfig.serverURL, let origin = originString(server),
-              var components = URLComponents(string: origin + "/owa/")
-        else { throw OWAError.notConfigured }
-        var items = [
-            URLQueryItem(name: "ae", value: "Item"),
-            URLQueryItem(name: "a", value: "New"),
-            URLQueryItem(name: "to", value: to),
-        ]
-        if let cc, !cc.isEmpty { items.append(URLQueryItem(name: "cc", value: cc)) }
-        items.append(URLQueryItem(name: "subject", value: subject))
-        items.append(URLQueryItem(name: "body", value: body))
-        components.queryItems = items
-        guard let url = components.url else { throw OWAError.badReply }
-        let webView = try await waitForWebView()
-        webView.load(URLRequest(url: url))
+        let webView = try await load("/owa/#path=/mail/inbox")
+        try await waitUntilLoaded(webView)
+
+        let raw = try await webView.callAsyncJavaScript(
+            composeScript,
+            arguments: ["to": to, "cc": cc ?? "", "subject": subject, "body": body],
+            in: nil,
+            contentWorld: .page
+        )
+        let result = raw as? [String: Any]
+        if result?["filled"] as? Bool != true {
+            // Control roles and labels only, so the log shows the page's structure, never what was typed.
+            throw OWAError.composeNotFilled((result?["labels"] as? String) ?? "none")
+        }
     }
 
-    private static func load(_ path: String) async throws {
+    /// Loads a path on the server. Outlook ignores a route change to Mail while its search results
+    /// are open, so search is closed first.
+    @discardableResult
+    private static func load(_ path: String) async throws -> WKWebView {
         guard let server = ServerConfig.serverURL, let origin = originString(server),
               let url = URL(string: origin + path)
         else { throw OWAError.notConfigured }
         let webView = try await waitForWebView()
+        if (try? await webView.evaluateJavaScript(exitSearchScript)) as? Bool == true {
+            try await Task.sleep(for: .milliseconds(300))
+        }
         webView.load(URLRequest(url: url))
+        return webView
     }
 
     // MARK: Page state
 
     /// The web view once the app has created it. Waits up to 15 seconds for a window that is still opening.
     static func waitForWebView() async throws -> WKWebView {
-        let deadline = ContinuousClock.now + .seconds(15)
+        // A closed window has no web view, so reopen it first. Then wait for the new view to appear.
+        WebViewStore.shared.reopenMainWindowIfNeeded()
+        let deadline = ContinuousClock.now + windowWait
         while ContinuousClock.now < deadline {
             if let webView = WebViewStore.shared.dispatcher.webView { return webView }
             try await Task.sleep(for: .milliseconds(250))
         }
+        log.notice("no web view after waiting; Outlook window not open")
         throw OWAError.notRunning
+    }
+
+    /// Waits for a load in progress, up to 15 seconds. A load that has not started yet counts as in progress for a moment.
+    private static func waitUntilLoaded(_ webView: WKWebView) async throws {
+        try await Task.sleep(for: .milliseconds(300))
+        let deadline = ContinuousClock.now + pageWait
+        while webView.isLoading, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     /// The web view on the Exchange server, after any load in progress has finished.
     /// Throws signedOut when the page is elsewhere, such as a Duo or ADFS sign-in.
     private static func readyWebView() async throws -> WKWebView {
         let webView = try await waitForWebView()
-        let deadline = ContinuousClock.now + .seconds(15)
-        while webView.isLoading, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(250))
-        }
+        try await waitUntilLoaded(webView)
         guard let url = webView.url else { throw OWAError.notRunning }
         guard let server = ServerConfig.serverURL, isSameOrigin(url, server) else { throw OWAError.signedOut }
         return webView
@@ -211,7 +250,7 @@ enum OWAService {
             guard cookie.name == "X-OWA-CANARY", !cookie.value.isEmpty else { return false }
             let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
             return host == domain || host.hasSuffix("." + domain)
-        }?.value
+        }?.value.removingPercentEncoding
     }
 
     private static func encoded(_ text: String) -> String {
@@ -247,9 +286,83 @@ enum OWAService {
         'Content-Type': 'application/json; charset=utf-8',
         'X-OWA-CANARY': canary
       },
-      body: payload
+      // Exchange reads "__type" only when it is the first key of an object. Swift dictionaries have no
+      // key order, so each object that carries a "__type" is rewritten with it first.
+      body: JSON.stringify(JSON.parse(payload), (key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value) && '__type' in value
+          ? { __type: value.__type, ...value }
+          : value)
     });
     const type = response.headers.get('content-type') || '';
     return { status: response.status, json: type.indexOf('json') !== -1, text: await response.text() };
+    """#
+
+    /// Clicks Outlook's "Exit search" button if search results are showing. Returns whether it did.
+    private static let exitSearchScript = #"""
+    (() => {
+      const label = Array.from(document.querySelectorAll('[aria-label="Exit search"]')).find((el) => el.getClientRects().length > 0);
+      if (!label) { return false; }
+      (label.closest('button') || label).click();
+      return true;
+    })()
+    """#
+
+    /// Clicks New, then fills the blank message. Arguments are to, cc, subject and body. It waits up
+    /// to 20 seconds for the button and then the fields, and returns { filled }. It never clicks Send.
+    /// The title and aria-labels are the ones on-premises OWA uses.
+    private static let composeScript = #"""
+    const visible = (selector) => Array.from(document.querySelectorAll(selector)).find((el) => el.getClientRects().length > 0) || null;
+    const started = Date.now();
+    let newButton = null;
+    while (!newButton && Date.now() - started < 20000) {
+      newButton = visible('button[title^="Write a new message" i], button[aria-label^="New message" i]');
+      if (!newButton) { await new Promise((resolve) => setTimeout(resolve, 250)); }
+    }
+    if (newButton) { newButton.click(); }
+    const find = (labels) => {
+      const controls = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"]'));
+      for (const label of labels) {
+        const match = controls.find((el) => el.getAttribute('aria-label') === label && el.getClientRects().length > 0);
+        if (match) { return match; }
+      }
+      return null;
+    };
+    const setInput = (el, value) => {
+      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const setEditable = (el, value) => {
+      el.focus();
+      document.execCommand('selectAll', false, null);
+      document.execCommand('insertText', false, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const deadline = started + 20000;
+    let toField = null, subjectField = null, bodyField = null;
+    while (Date.now() < deadline) {
+      toField = find(['To']);
+      subjectField = find(['Subject,', 'Add a subject', 'Subject']);
+      bodyField = find(['Message body']);
+      if (toField && subjectField && bodyField) { break; }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (!toField || !subjectField || !bodyField) {
+      const labels = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"], [role="combobox"], button'))
+        .filter((el) => el.getClientRects().length > 0)
+        .slice(0, 60)
+        .map((el) => [el.tagName.toLowerCase(), el.getAttribute('role') || '', (el.getAttribute('aria-label') || '').slice(0, 40)].join('|'))
+        .join('; ');
+      return { filled: false, labels: labels };
+    }
+    setInput(toField, to);
+    if (cc) {
+      const ccField = find(['Cc']);
+      if (ccField) { setInput(ccField, cc); }
+    }
+    setInput(subjectField, subject);
+    setEditable(bodyField, body);
+    return { filled: true };
     """#
 }

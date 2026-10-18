@@ -81,7 +81,12 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
 
     /// Restores saved cookies, then loads the server. Runs once, when the web view is created.
     func startSession() {
-        guard !sessionStarted else { return }
+        windowRequested = false
+        // A window reopened after it was closed gets a new web view, which still needs the page.
+        guard !sessionStarted else {
+            loadServer()
+            return
+        }
         sessionStarted = true
         userStyles.onChange = { [weak self] in self?.reloadUserStyles() }
         userStyles.startWatching()
@@ -104,6 +109,31 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
             await CookiePersistence.signOut()
             dispatcher.webView?.reload()
         }
+    }
+
+    /// Opens the main window when there is no web view. RootView sets this, since only a view can
+    /// open a window by its scene ID.
+    var openMainWindow: (() -> Void)?
+
+    // True from asking for a window until its web view exists, so a second request in that gap
+    // (a Dock reopen and a Shortcuts action arrive together) does not open a second window.
+    private var windowRequested = false
+
+    /// Opens the main window if it was closed, so Shortcuts and reopened apps get a page to use.
+    /// Returns false when it cannot, because no main window has registered how to open one.
+    @discardableResult
+    func reopenMainWindowIfNeeded() -> Bool {
+        guard dispatcher.webView == nil, !windowRequested else { return true }
+        guard let openMainWindow else { return false }
+        windowRequested = true
+        NSApplication.shared.activate()
+        openMainWindow()
+        // If no window came of it, a later request may try again.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            self?.windowRequested = false
+        }
+        return true
     }
 
     /// Loads the configured server, if one has been set up.

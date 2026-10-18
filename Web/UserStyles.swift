@@ -5,9 +5,18 @@ import WebKit
 /// document start, and the open page is updated whenever the file changes.
 @MainActor
 final class UserStyles {
+    /// The app's own folder. Test builds under another bundle ID get a folder of their own, so they
+    /// never read or write the session of the installed app.
     static let directory = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("OutlookMac", isDirectory: true)
+        .appendingPathComponent(folderName, isDirectory: true)
+
+    private static var folderName: String {
+        let identifier = Bundle.main.bundleIdentifier ?? ""
+        return identifier == "com.oaustegard.outlook-mac" || identifier.isEmpty
+            ? "OutlookMac"
+            : "OutlookMac-\(identifier)"
+    }
     static let fileURL = directory.appendingPathComponent("user.css")
 
     var onChange: (@MainActor () -> Void)?

@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @State private var showingServerSetup = ServerConfig.serverURL == nil
     @State private var searchText = ""
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         OutlookWebView()
@@ -23,6 +24,9 @@ struct RootView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .showServerSetup)) { _ in
                 showingServerSetup = true
+            }
+            .onAppear {
+                WebViewStore.shared.openMainWindow = { openWindow(id: "main") }
             }
     }
 }

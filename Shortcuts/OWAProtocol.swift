@@ -21,12 +21,42 @@ struct MessageFilter: Sendable {
     var unreadOnly = false
     var hasAttachments = false
     var limit = 25
+
+    /// Whether a message passes every condition. The server rejects restriction bodies and its AQS
+    /// keywords match nothing, so filtering runs here on the metadata OWA returns: sender, subject,
+    /// date, read state and attachments. Text search therefore covers sender and subject only.
+    func matches(_ message: MessageRecord) -> Bool {
+        if let text, !text.isEmpty,
+           !message.subject.localizedCaseInsensitiveContains(text),
+           !message.senderName.localizedCaseInsensitiveContains(text),
+           !message.senderEmail.localizedCaseInsensitiveContains(text) {
+            return false
+        }
+        if let from, !from.isEmpty,
+           !message.senderName.localizedCaseInsensitiveContains(from),
+           !message.senderEmail.localizedCaseInsensitiveContains(from) {
+            return false
+        }
+        if let subject, !subject.isEmpty, !message.subject.localizedCaseInsensitiveContains(subject) {
+            return false
+        }
+        if let after, !(message.received.map { $0 >= after } ?? false) { return false }
+        if let before, !(message.received.map { $0 <= before } ?? false) { return false }
+        if unreadOnly && message.isRead { return false }
+        if hasAttachments && !message.hasAttachments { return false }
+        return true
+    }
 }
 
-/// Request bodies for OWA's service.svc. Only metadata is requested: no body, no preview text.
+/// Request bodies for OWA's service.svc. Only metadata is requested, never a body.
+/// Shapes checked against the live server: IndexedPageView paging, SortResults ordering, and
+/// GetCalendarView for the calendar. FindItem rejects Deep traversal and restriction bodies.
 enum OWARequest {
     static let messageProperties = ["Subject", "DateTimeReceived", "From", "IsRead", "Importance", "HasAttachments"]
     static let meetingProperties = ["Subject", "Start", "End", "Location", "Organizer", "IsOrganizer"]
+
+    /// Folders that make up "All Mail" for FindItem, which cannot traverse the whole mailbox at once.
+    static let allMailFolders = ["inbox", "sentitems", "drafts", "deleteditems"]
 
     static let distinguishedFolders: [String: FolderRef] = [
         "inbox": FolderRef(id: "inbox", distinguished: true),
@@ -57,7 +87,7 @@ enum OWARequest {
     }
 
     static func paging(_ limit: Int) -> [String: Any] {
-        ["__type": "IndexedPageItemView:#Exchange", "BasePoint": "Beginning", "Offset": 0, "MaxEntriesReturned": limit]
+        ["__type": "IndexedPageView:#Exchange", "BasePoint": "Beginning", "Offset": 0, "MaxEntriesReturned": limit]
     }
 
     static func iso(_ date: Date) -> String {
@@ -72,74 +102,40 @@ enum OWARequest {
             "FolderShape": [
                 "__type": "FolderResponseShape:#Exchange",
                 "BaseShape": "IdOnly",
-                "AdditionalProperties": [property("DisplayName"), property("UnreadCount")],
+                "AdditionalProperties": [property("FolderDisplayName"), property("UnreadCount")],
             ],
             "FolderIds": [folder.json],
         ]
     }
 
     /// Every folder under the mailbox root, so a folder can be found by its display name.
+    /// OWA calls the folder's name FolderDisplayName; it silently ignores a plain DisplayName.
     static func findFolders() -> [String: Any] {
         [
             "__type": "FindFolderRequest:#Exchange",
             "FolderShape": [
                 "__type": "FolderResponseShape:#Exchange",
                 "BaseShape": "IdOnly",
-                "AdditionalProperties": [property("DisplayName"), property("UnreadCount")],
+                "AdditionalProperties": [property("FolderDisplayName"), property("UnreadCount"), property("ParentFolderId")],
             ],
             "ParentFolderIds": [distinguished("msgfolderroot")],
             "Traversal": "Deep",
-            "Paging": [
-                "__type": "IndexedPageFolderView:#Exchange",
-                "BasePoint": "Beginning",
-                "Offset": 0,
-                "MaxEntriesReturned": 1000,
-            ],
+            "Paging": paging(1000),
         ]
     }
 
     // MARK: Messages
 
-    /// A FindItem over message folders, newest first. Conditions are ANDed; `query` is AQS text.
-    static func findMessages(_ filter: MessageFilter, parents: [[String: Any]], deep: Bool) -> [String: Any] {
-        var conditions: [[String: Any]] = []
-        if let subject = filter.subject, !subject.isEmpty {
-            conditions.append(contains("Subject", subject))
-        }
-        if let after = filter.after {
-            conditions.append(compare("IsGreaterThanOrEqualToType", "DateTimeReceived", iso(after)))
-        }
-        if let before = filter.before {
-            conditions.append(compare("IsLessThanOrEqualToType", "DateTimeReceived", iso(before)))
-        }
-        if filter.unreadOnly {
-            conditions.append(equal("IsRead", "false"))
-        }
-        if filter.hasAttachments {
-            conditions.append(equal("HasAttachments", "true"))
-        }
-
-        var terms: [String] = []
-        if let text = filter.text, !text.isEmpty { terms.append("\"\(unquoted(text))\"") }
-        if let from = filter.from, !from.isEmpty { terms.append("from:\"\(unquoted(from))\"") }
-
-        var body = messageSearch(parents: parents, deep: deep, limit: filter.limit)
-        if let restriction = restriction(conditions) { body["Restriction"] = restriction }
-        if !terms.isEmpty {
-            body["QueryString"] = ["__type": "QueryStringType:#Exchange", "Value": terms.joined(separator: " ")]
-        }
-        return body
-    }
-
-    static func messageSearch(parents: [[String: Any]], deep: Bool, limit: Int) -> [String: Any] {
+    /// The newest messages in the given folders, with metadata only. Filtering happens afterwards.
+    static func messageSearch(parents: [[String: Any]], limit: Int) -> [String: Any] {
         [
             "__type": "FindItemRequest:#Exchange",
             "ItemShape": shape(messageProperties),
             "ParentFolderIds": parents,
-            "Traversal": deep ? "Deep" : "Shallow",
+            "Traversal": "Shallow",
             "Paging": paging(limit),
             "SortOrder": [[
-                "__type": "FieldOrder:#Exchange",
+                "__type": "SortResults:#Exchange",
                 "Order": "Descending",
                 "Path": property("DateTimeReceived"),
             ]],
@@ -156,68 +152,17 @@ enum OWARequest {
 
     // MARK: Calendar
 
-    /// Calendar items that overlap the range, in start order. Recurring meetings are expanded by the server.
-    static func calendarView(from start: Date, to end: Date, limit: Int) -> [String: Any] {
+    /// Calendar items that overlap the range. Recurring meetings come back as occurrences.
+    static func getCalendarView(from start: Date, to end: Date) -> [String: Any] {
         [
-            "__type": "FindItemRequest:#Exchange",
-            "ItemShape": shape(meetingProperties),
-            "ParentFolderIds": [distinguished("calendar")],
-            "Traversal": "Shallow",
-            "CalendarView": [
-                "__type": "CalendarViewType:#Exchange",
-                "StartDate": iso(start),
-                "EndDate": iso(end),
-                "MaxEntriesReturned": limit,
+            "__type": "GetCalendarViewRequest:#Exchange",
+            "CalendarId": [
+                "__type": "TargetFolderId:#Exchange",
+                "BaseFolderId": distinguished("calendar"),
             ],
+            "RangeStart": iso(start),
+            "RangeEnd": iso(end),
         ]
-    }
-
-    // MARK: Restriction helpers
-
-    private static func restriction(_ conditions: [[String: Any]]) -> [String: Any]? {
-        switch conditions.count {
-        case 0: nil
-        case 1: conditions[0]
-        default: ["__type": "AndType:#Exchange", "Items": conditions]
-        }
-    }
-
-    private static func equal(_ field: String, _ value: String) -> [String: Any] {
-        [
-            "__type": "IsEqualToType:#Exchange",
-            "Item": property(field),
-            "FieldURIOrConstant": constant(value),
-        ]
-    }
-
-    private static func compare(_ type: String, _ field: String, _ value: String) -> [String: Any] {
-        [
-            "__type": type + ":#Exchange",
-            "Item": property(field),
-            "FieldURIOrConstant": constant(value),
-        ]
-    }
-
-    private static func contains(_ field: String, _ text: String) -> [String: Any] {
-        [
-            "__type": "ContainsExpressionType:#Exchange",
-            "ContainmentMode": "Substring",
-            "ContainmentComparison": "IgnoreCase",
-            "Item": property(field),
-            "Constant": ["__type": "ConstantValueType:#Exchange", "Value": text],
-        ]
-    }
-
-    private static func constant(_ value: String) -> [String: Any] {
-        [
-            "__type": "FieldURIOrConstantType:#Exchange",
-            "Constant": ["__type": "ConstantValueType:#Exchange", "Value": value],
-        ]
-    }
-
-    /// Removes quotes so user text cannot close an AQS phrase early.
-    private static func unquoted(_ text: String) -> String {
-        text.replacingOccurrences(of: "\"", with: "")
     }
 }
 
@@ -230,6 +175,7 @@ struct MessageRecord: Sendable {
     let senderEmail: String
     let subject: String
     let received: Date?
+    let isRead: Bool
     let isImportant: Bool
     let hasAttachments: Bool
 }
@@ -250,6 +196,37 @@ struct FolderRecord: Sendable {
     let id: String
     let name: String
     let unreadCount: Int
+    var parentID: String? = nil
+}
+
+extension Array where Element == FolderRecord {
+    /// The folder a name refers to. "Inbox/PRs" names a folder by its path; a bare name that
+    /// several folders share (such as an Inbox inside Archive) means the one nearest the top.
+    func named(_ name: String) -> FolderRecord? {
+        let byID = Dictionary(map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func ancestors(_ folder: FolderRecord) -> [String] {
+            var names: [String] = []
+            var parent = folder.parentID.flatMap { byID[$0] }
+            while let current = parent, names.count < 50 {
+                names.insert(current.name, at: 0)
+                parent = current.parentID.flatMap { byID[$0] }
+            }
+            return names
+        }
+        let path = name.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let leaf = path.last else { return nil }
+        let same = { (a: String, b: String) in a.caseInsensitiveCompare(b) == .orderedSame }
+        return filter { same($0.name, leaf) }
+            .map { (folder: $0, ancestors: ancestors($0)) }
+            .filter { candidate in
+                // Each named parent must be one of the folder's ancestors, nearest last.
+                let parents = path.dropLast()
+                return parents.count <= candidate.ancestors.count
+                    && zip(parents.reversed(), candidate.ancestors.reversed()).allSatisfy(same)
+            }
+            .min { $0.ancestors.count < $1.ancestors.count }?
+            .folder
+    }
 }
 
 enum OWAParse {
@@ -292,7 +269,8 @@ enum OWAParse {
             return FolderRecord(
                 id: id,
                 name: folder["DisplayName"] as? String ?? "",
-                unreadCount: folder["UnreadCount"] as? Int ?? 0
+                unreadCount: folder["UnreadCount"] as? Int ?? 0,
+                parentID: (folder["ParentFolderId"] as? [String: Any])?["Id"] as? String
             )
         }
     }
@@ -314,6 +292,7 @@ enum OWAParse {
             senderEmail: from.email,
             subject: item["Subject"] as? String ?? "",
             received: date(item["DateTimeReceived"]),
+            isRead: item["IsRead"] as? Bool ?? true,
             isImportant: item["Importance"] as? String == "High",
             hasAttachments: item["HasAttachments"] as? Bool ?? false
         )
@@ -382,6 +361,8 @@ enum OWAError: LocalizedError {
     case signedOut
     case notConfigured
     case badReply
+    case composeNotFilled(String)
+    case noSearchBox
     case noSuchFolder(String)
     case noMeeting(Int)
     case server(String)
@@ -396,6 +377,10 @@ enum OWAError: LocalizedError {
             "No Exchange server is set up in Outlook."
         case .badReply:
             "Outlook returned a reply that could not be read."
+        case .composeNotFilled(let labels):
+            "Opened a blank message, but Outlook's compose fields were not found, so nothing was filled in. Controls on the page: \(labels)"
+        case .noSearchBox:
+            "Outlook's search box was not found, so nothing was searched."
         case .noSuchFolder(let name):
             "There is no folder named \(name)."
         case .noMeeting(let hours):

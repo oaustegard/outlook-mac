@@ -46,7 +46,7 @@ struct GetUnreadCountIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Unread Count"
     static let description = IntentDescription("Returns the number of unread messages in a folder.")
 
-    @Parameter(title: "Folder", description: "A folder name, or Inbox.", default: "Inbox")
+    @Parameter(title: "Folder", description: "A folder name, or a path such as Archive/Inbox.", default: "Inbox")
     var folder: String
 
     func perform() async throws -> some IntentResult & ReturnsValue<Int> {
@@ -56,9 +56,9 @@ struct GetUnreadCountIntent: AppIntent {
 
 struct GetRecentMessagesIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Recent Messages"
-    static let description = IntentDescription("Returns the newest messages in a folder, metadata only.")
+    static let description = IntentDescription("Returns the newest messages in a folder from the latest 200, metadata only.")
 
-    @Parameter(title: "Folder", default: "Inbox")
+    @Parameter(title: "Folder", description: "A folder name, or a path such as Archive/Inbox.", default: "Inbox")
     var folder: String
 
     @Parameter(title: "Unread Only", default: true)
@@ -112,7 +112,7 @@ struct OpenViewIntent: AppIntent {
     @Parameter(title: "View", default: .mail)
     var view: OutlookView
 
-    @Parameter(title: "Folder", description: "Used only when the view is Folder.")
+    @Parameter(title: "Folder", description: "Used only when the view is Folder. A name, or a path such as Archive/Inbox.")
     var folder: String?
 
     func perform() async throws -> some IntentResult {
@@ -137,9 +137,9 @@ struct OpenMessageIntent: AppIntent {
 
 struct FindMessagesIntent: AppIntent {
     static let title: LocalizedStringResource = "Find Messages"
-    static let description = IntentDescription("Finds messages by text, sender, subject, date, read state or attachments.")
+    static let description = IntentDescription("Finds messages among the newest 200 in the folder, by sender, subject, date, read state or attachments.")
 
-    @Parameter(title: "Query", description: "Text to find anywhere in the message.")
+    @Parameter(title: "Query", description: "Text to find in the sender name, sender email or subject.")
     var query: String?
 
     @Parameter(title: "From Contains")
@@ -148,7 +148,7 @@ struct FindMessagesIntent: AppIntent {
     @Parameter(title: "Subject Contains")
     var subject: String?
 
-    @Parameter(title: "Folder", description: "A folder name, or All Mail.", default: "All Mail")
+    @Parameter(title: "Folder", description: "A folder name, a path such as Archive/Inbox, or All Mail.", default: "All Mail")
     var folder: String
 
     @Parameter(title: "Received After")

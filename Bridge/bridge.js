@@ -9,6 +9,19 @@
   // this origin, so they do nothing on sign-in pages on other hosts, such as Duo.
   const serverOrigin = window.__OWA_ORIGIN__ || null;
 
+  // A message opened on its own (Open Message) has a Close button that calls window.close().
+  // WebKit ignores that in the main window, so Close goes back to the mailbox instead. Popups,
+  // which do close, are left alone.
+  if (serverOrigin && location.origin === serverOrigin && !window.opener) {
+    const close = window.close.bind(window);
+    window.close = function () {
+      close();
+      setTimeout(() => {
+        if (!window.closed) location.assign(serverOrigin + '/owa/');
+      }, 100);
+    };
+  }
+
   // On-premises OWA lives under /owa/ and routes by hash; outlook.com uses plain paths.
   const routes = {
     mail: ['/owa/#path=/mail', '/mail/inbox'],
@@ -149,8 +162,27 @@
     return true;
   }
 
-  function focusSearch() {
-    const input = document.querySelector('#topSearchInput input, input[aria-label*="Search" i]');
+  // The search box. On-premises OWA hides it behind an "Activate Search Textbox" button until
+  // clicked. Waits up to 10s, since a page that just loaded is still drawing its toolbar.
+  async function searchInput() {
+    const selector = '#topSearchInput input, input[aria-label*="Search" i]';
+    const started = Date.now();
+    let clicked = false;
+    while (Date.now() - started < 10000) {
+      const input = visibleMatch(selector);
+      if (input) return input;
+      const activate = !clicked && visibleMatch('button[aria-label="Activate Search Textbox"]');
+      if (activate) {
+        activate.click();
+        clicked = true;
+      }
+      await delay(100);
+    }
+    return null;
+  }
+
+  async function focusSearch() {
+    const input = await searchInput();
     if (!input) return false;
     input.focus();
     input.select();
@@ -159,8 +191,8 @@
 
   // Commands that are not in the keymap.
   const special = {
-    search: function () {
-      return focusSearch() || pressKeys([{ key: '/', code: 'Slash' }]);
+    search: async function () {
+      return (await focusSearch()) || pressKeys([{ key: '/', code: 'Slash' }]);
     },
     refresh: function () {
       location.reload();
@@ -255,13 +287,20 @@
     },
 
     // Puts the query in the page's search box and submits it with Enter.
-    searchFor: function (query) {
-      const input = document.querySelector('#topSearchInput input, input[aria-label*="Search" i]');
+    searchFor: async function (query) {
+      const input = await searchInput();
       if (!input) return false;
       input.focus();
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, query);
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      return pressKeys([{ key: 'Enter', code: 'Enter' }]);
+      // On-premises OWA reads keyCode, not key, so the Enter it sees must carry 13.
+      const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      for (const type of ['keydown', 'keypress', 'keyup']) input.dispatchEvent(new KeyboardEvent(type, init));
+      // Typing into the box also opens a suggestion list, which stays over the results until Escape.
+      await delay(600);
+      const escape = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true };
+      for (const type of ['keydown', 'keyup']) input.dispatchEvent(new KeyboardEvent(type, escape));
+      return true;
     },
 
     // The page's structure as a JSON string, for the layout survey.
