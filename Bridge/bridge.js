@@ -163,18 +163,21 @@
   }
 
   // The search box. On-premises OWA hides it behind an "Activate Search Textbox" button until
-  // clicked. Waits up to 10s, since a page that just loaded is still drawing its toolbar.
+  // clicked. Waits up to 10s, since a page that just loaded is still drawing its toolbar. The first
+  // press sometimes does not open the box, so the button is pressed once more after 1.5s.
   async function searchInput() {
     const selector = '#topSearchInput input, input[aria-label*="Search" i]';
     const started = Date.now();
-    let clicked = false;
+    let presses = 0;
+    let lastPress = 0;
     while (Date.now() - started < 10000) {
       const input = visibleMatch(selector);
       if (input) return input;
-      const activate = !clicked && visibleMatch('button[aria-label="Activate Search Textbox"]');
+      const activate = presses < 2 && Date.now() - lastPress >= 1500 && visibleMatch('button[aria-label="Activate Search Textbox"]');
       if (activate) {
         activate.click();
-        clicked = true;
+        presses += 1;
+        lastPress = Date.now();
       }
       await delay(100);
     }
@@ -293,13 +296,33 @@
       input.focus();
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, query);
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      // OWA can clear the box when focus settles, so the value is checked once more after a short wait.
+      await delay(250);
+      const current = visibleMatch('#topSearchInput input, input[aria-label*="Search" i]') || input;
+      if (current.value !== query) {
+        current.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(current, query);
+        current.dispatchEvent(new Event('input', { bubbles: true }));
+        await delay(150);
+      }
+      // Only lengths and flags are reported, never the query text or results.
+      try {
+        window.webkit.messageHandlers.omac.postMessage({
+          type: 'search',
+          valueLength: current.value.length,
+          focused: document.activeElement === current,
+          searchPath: location.hash.indexOf('/search') !== -1
+        });
+      } catch (e) {
+        // Not running inside the app, so there is nowhere to report to.
+      }
       // On-premises OWA reads keyCode, not key, so the Enter it sees must carry 13.
       const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-      for (const type of ['keydown', 'keypress', 'keyup']) input.dispatchEvent(new KeyboardEvent(type, init));
+      for (const type of ['keydown', 'keypress', 'keyup']) current.dispatchEvent(new KeyboardEvent(type, init));
       // Typing into the box also opens a suggestion list, which stays over the results until Escape.
       await delay(600);
       const escape = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true };
-      for (const type of ['keydown', 'keyup']) input.dispatchEvent(new KeyboardEvent(type, escape));
+      for (const type of ['keydown', 'keyup']) current.dispatchEvent(new KeyboardEvent(type, escape));
       return true;
     },
 
