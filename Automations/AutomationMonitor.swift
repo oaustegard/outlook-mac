@@ -3,7 +3,8 @@ import OSLog
 
 /// Watches Outlook for the four events Settings > Automations lists, and runs the chosen shortcut
 /// when one happens. Polls once a minute while the app runs, through the same service calls the
-/// intents use. Only metadata is read, and only event inputs are logged.
+/// intents use. Only metadata is read, and only event inputs are logged. The same poll feeds the
+/// Dock badge and the new-mail banners (MailAlerts).
 @MainActor
 final class AutomationMonitor {
     static let shared = AutomationMonitor()
@@ -33,12 +34,23 @@ final class AutomationMonitor {
         }
 
         let settings = AutomationStore.shared.settings
+        let showsNotifications = MailAlertStore.shared.showsNotifications
         do {
             try await checkUnread(settings.unreadChanged)
+            // One inbox listing serves both New Mail and the new-mail banners.
+            var recent: [MessageRecord] = []
+            if settings.newMail.enabled || showsNotifications {
+                recent = try await OWAService.recentMessages(folder: "Inbox", unreadOnly: false, limit: 50)
+            }
             if settings.newMail.enabled {
-                try await checkNewMail(settings)
+                checkNewMail(settings, recent)
             } else {
                 AutomationState.seenMessageIDs = nil
+            }
+            if showsNotifications {
+                MailAlerts.shared.checkArrivals(recent)
+            } else {
+                MailAlerts.shared.resetArrivals()
             }
             if settings.meeting.enabled {
                 try await checkMeetings(settings)
@@ -56,6 +68,7 @@ final class AutomationMonitor {
     private func checkUnread(_ rule: AutomationSettings.Event) async throws {
         let count = try await OWAService.unreadCount(folder: "Inbox")
         AutomationState.signedOutReported = false
+        MailAlerts.shared.showUnread(count)
         guard rule.enabled else {
             AutomationState.lastUnreadCount = nil
             return
@@ -83,8 +96,7 @@ final class AutomationMonitor {
     }
 
     /// New Mail. The first poll after enabling only records the inbox, so existing mail never fires.
-    private func checkNewMail(_ settings: AutomationSettings) async throws {
-        let recent = try await OWAService.recentMessages(folder: "Inbox", unreadOnly: false, limit: 50)
+    private func checkNewMail(_ settings: AutomationSettings, _ recent: [MessageRecord]) {
         let ids = recent.map(\.id)
         guard let seen = AutomationState.seenMessageIDs else {
             AutomationState.seenMessageIDs = ids
@@ -155,6 +167,8 @@ final class AutomationMonitor {
 
     /// Signed Out fires once per lapse. It re-arms when a poll finds the session signed in again.
     private func reportSignedOut() {
+        // The count is unknown until the session is back, so the Dock shows none rather than a stale one.
+        MailAlerts.shared.showUnread(nil)
         guard !AutomationState.signedOutReported else { return }
         AutomationState.signedOutReported = true
         fire(AutomationStore.shared.settings.signedOut, "signedOut", input: [

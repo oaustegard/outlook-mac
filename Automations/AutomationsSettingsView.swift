@@ -1,12 +1,18 @@
 import SwiftUI
 
-/// Settings > Automations: each event, the shortcut it runs, and its switch.
+/// Settings > Automations: the Dock badge and banner switches, then each event, the shortcut it runs, and its switch.
 struct AutomationsSettingsView: View {
     @Bindable private var store = AutomationStore.shared
+    @Bindable private var alerts = MailAlertStore.shared
     @State private var shortcuts: [String] = []
 
     var body: some View {
         Form {
+            Section("Dock and Notifications") {
+                Toggle("Show unread count in Dock", isOn: $alerts.showsDockBadge)
+                Toggle("Show notifications for new mail", isOn: $alerts.showsNotifications)
+            }
+
             Section("New Mail") {
                 eventRow("New mail arrives", $store.settings.newMail)
                 TextField("Sender contains", text: $store.settings.newMailFromContains)

@@ -41,6 +41,34 @@ final class AutomationStore {
     }
 }
 
+/// The Dock badge and new-mail banner switches, both on by default. Kept apart from AutomationSettings,
+/// whose saved JSON has no keys for them and would then fail to decode, resetting every automation.
+@MainActor
+@Observable
+final class MailAlertStore {
+    static let shared = MailAlertStore()
+
+    var showsDockBadge: Bool {
+        didSet {
+            UserDefaults.standard.set(showsDockBadge, forKey: "alerts.dockBadge")
+            if !showsDockBadge { MailAlerts.shared.showUnread(nil) }
+        }
+    }
+
+    var showsNotifications: Bool {
+        didSet {
+            UserDefaults.standard.set(showsNotifications, forKey: "alerts.notifications")
+            if showsNotifications { MailAlerts.shared.requestAuthorization() }
+        }
+    }
+
+    private init() {
+        let defaults = UserDefaults.standard
+        showsDockBadge = defaults.object(forKey: "alerts.dockBadge") as? Bool ?? true
+        showsNotifications = defaults.object(forKey: "alerts.notifications") as? Bool ?? true
+    }
+}
+
 /// What the monitor remembers between polls and relaunches, so an event never fires twice.
 enum AutomationState {
     private static var defaults: UserDefaults { .standard }

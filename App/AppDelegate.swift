@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.windows.forEach { $0.tabbingMode = .disallowed }
+        MailAlerts.shared.start()
         AutomationMonitor.shared.start()
         SecondaryWindows.restoreOpen()
     }
