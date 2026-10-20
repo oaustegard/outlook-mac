@@ -108,19 +108,32 @@
     return Array.from(document.querySelectorAll(selector)).find(el => el.getClientRects().length > 0) || null;
   }
 
-  // The first visible element matching the selector whose aria-label or text is `label`, or null.
+  // The first visible element matching the selector whose text is `label`, or null.
   function visibleLabelled(selector, label) {
     const want = label.toLowerCase();
     return Array.from(document.querySelectorAll(selector)).find(el => {
-      const text = (el.getAttribute('aria-label') || el.textContent || '').trim().toLowerCase();
+      const text = (el.textContent || '').trim().toLowerCase();
       return text === want && el.getClientRects().length > 0;
     }) || null;
   }
 
-  // Opens the context menu of the selected message, then clicks the item labelled `label`.
-  // Outlook offers Pin and Mark as junk only there, not as keyboard shortcuts.
-  async function clickMessageMenuItem(label) {
-    const row = visibleMatch('[role="listbox"] [role="option"][aria-selected="true"]');
+  // The selected row of the message list. Message rows are the options that open a context menu,
+  // which leaves out other listboxes such as the reminders toast. On-premises OWA sets no
+  // aria-selected on its rows: the selected one holds the list's tabindex="0" and drops the
+  // default background. The first row holds tabindex="0" before anything is selected too.
+  function selectedMessageRow() {
+    const rows = Array.from(document.querySelectorAll('[role="option"][aria-haspopup="true"]'))
+      .filter(el => el.getClientRects().length > 0);
+    return rows.find(el => el.getAttribute('aria-selected') === 'true') ||
+      rows.find(el => el.getAttribute('tabindex') === '0' && !el.classList.contains('listItemDefaultBackground')) ||
+      null;
+  }
+
+  // Opens the context menu of the selected message, then clicks the first item whose text is one
+  // of `labels`. Outlook offers Pin and Mark as junk only there, not as keyboard shortcuts. The menu
+  // shows Unpin instead of Pin for a pinned message, so listing both makes the command a toggle.
+  async function clickMessageMenuItem(labels) {
+    const row = selectedMessageRow();
     if (!row) return false;
     const r = row.getBoundingClientRect();
     row.dispatchEvent(new MouseEvent('contextmenu', {
@@ -132,10 +145,14 @@
     }));
     const started = Date.now();
     while (Date.now() - started < 3000) {
-      const item = visibleLabelled('[role="menuitem"], [role="menuitemcheckbox"]', label);
-      if (item) {
-        item.click();
-        return true;
+      // Each item is a div wrapping a button, both with role menuitem; the button takes the click.
+      for (const label of labels) {
+        const item = visibleLabelled('[role="menu"] button[role="menuitem"]', label) ||
+          visibleLabelled('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemcheckbox"]', label);
+        if (item) {
+          item.click();
+          return true;
+        }
       }
       await delay(100);
     }
@@ -143,12 +160,23 @@
     return false;
   }
 
+  // On-premises OWA reads keyCode, not key or code, so every key it is sent must carry one.
+  const namedKeyCodes = { Enter: 13, Escape: 27, Insert: 45, Delete: 46, Slash: 191 };
+  function keyCodeFor(k) {
+    const letterOrDigit = /^(?:Key|Digit)(.)$/.exec(k.code || '');
+    if (letterOrDigit) return letterOrDigit[1].charCodeAt(0);
+    return namedKeyCodes[k.code] || 0;
+  }
+
   function pressKeys(keys) {
     const target = document.activeElement || document.body;
     for (const k of keys) {
+      const keyCode = keyCodeFor(k);
       const init = {
         key: k.key,
         code: k.code,
+        keyCode: keyCode,
+        which: keyCode,
         ctrlKey: !!k.ctrlKey,
         shiftKey: !!k.shiftKey,
         altKey: !!k.altKey,
@@ -212,7 +240,7 @@
     if (!entry) return false;
     if (!(await ensureView(entry))) return false;
 
-    if (entry.menuLabel) return clickMessageMenuItem(entry.menuLabel);
+    if (entry.menuLabels) return clickMessageMenuItem(entry.menuLabels);
     if (entry.selector) {
       const el = visibleMatch(entry.selector);
       if (el) {
