@@ -156,7 +156,7 @@ final class WebViewStore: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindow
     /// Returns false when it cannot, because no main window has registered how to open one.
     @discardableResult
     func reopenMainWindowIfNeeded() -> Bool {
-        guard dispatcher.webView == nil, !windowRequested else { return true }
+        guard mailWebView == nil, !windowRequested else { return true }
         guard let openMainWindow else { return false }
         windowRequested = true
         NSApplication.shared.activate()

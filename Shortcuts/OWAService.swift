@@ -200,7 +200,7 @@ enum OWAService {
         WebViewStore.shared.reopenMainWindowIfNeeded()
         let deadline = ContinuousClock.now + windowWait
         while ContinuousClock.now < deadline {
-            if let webView = WebViewStore.shared.dispatcher.webView { return webView }
+            if let webView = WebViewStore.shared.mailWebView { return webView }
             try await Task.sleep(for: .milliseconds(250))
         }
         log.notice("no web view after waiting; Outlook window not open")

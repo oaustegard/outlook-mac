@@ -23,7 +23,7 @@ final class AutomationMonitor {
 
     /// One pass over the events. Skipped until the page has loaded, so a launch is not read as signed out.
     func poll() async {
-        guard let webView = WebViewStore.shared.dispatcher.webView, !webView.isLoading, let url = webView.url else {
+        guard let webView = WebViewStore.shared.mailWebView, !webView.isLoading, let url = webView.url else {
             return
         }
         guard let server = ServerConfig.serverURL, OWAService.isSameOrigin(url, server) else {
